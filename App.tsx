@@ -1,9 +1,10 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { WordItem, AppMode, TestResult } from './types';
 import { InputSection } from './components/InputSection';
 import { PracticeMode } from './components/PracticeMode';
 import { TestMode } from './components/TestMode';
 import { ResultScreen } from './components/ResultScreen';
+import { LandingPage } from './components/LandingPage';
 
 export default function App() {
   const [words, setWords] = useState<WordItem[]>([]);
@@ -11,9 +12,54 @@ export default function App() {
   const [testResults, setTestResults] = useState<TestResult[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Initialize from LocalStorage and URL
+  useEffect(() => {
+    try {
+      const savedWords = localStorage.getItem('dixi_words');
+      let loadedWords: WordItem[] = [];
+      if (savedWords) {
+        loadedWords = JSON.parse(savedWords);
+        setWords(loadedWords);
+      }
+
+      const params = new URLSearchParams(window.location.search);
+      const page = params.get('page');
+      
+      if (page && Object.values(AppMode).includes(page as AppMode)) {
+        // Only allow navigation to functional modes if we have words
+        if ((page === AppMode.PRACTICE || page === AppMode.TEST || page === AppMode.PREVIEW) && loadedWords.length === 0) {
+           setMode(AppMode.MENU);
+           updateUrl(AppMode.MENU);
+        } else {
+           setMode(page as AppMode);
+        }
+      }
+    } catch (e) {
+      console.error("Error initializing app:", e);
+    }
+  }, []);
+
+  // Update LocalStorage whenever words change
+  useEffect(() => {
+    if (words.length > 0) {
+      localStorage.setItem('dixi_words', JSON.stringify(words));
+    }
+  }, [words]);
+
+  const updateUrl = (newMode: AppMode) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('page', newMode);
+    window.history.pushState({}, '', url);
+  };
+
+  const handleModeChange = (newMode: AppMode) => {
+    setMode(newMode);
+    updateUrl(newMode);
+  };
+
   const handleSaveList = (newList: WordItem[]) => {
     setWords(newList);
-    setMode(AppMode.PREVIEW);
+    handleModeChange(AppMode.PREVIEW);
   };
 
   const downloadList = () => {
@@ -36,7 +82,7 @@ export default function App() {
                     const parsed = JSON.parse(event.target.result as string);
                     if(Array.isArray(parsed)) {
                         setWords(parsed);
-                        setMode(AppMode.PREVIEW);
+                        handleModeChange(AppMode.PREVIEW);
                     }
                 } catch (err) {
                     alert("קובץ לא תקין");
@@ -52,13 +98,13 @@ export default function App() {
         return (
           <InputSection 
             onSave={handleSaveList} 
-            onCancel={() => setMode(AppMode.MENU)} 
+            onCancel={() => handleModeChange(AppMode.MENU)} 
             initialList={words}
           />
         );
 
       case AppMode.PRACTICE:
-        return <PracticeMode words={words} onBack={() => setMode(AppMode.PREVIEW)} />;
+        return <PracticeMode words={words} onBack={() => handleModeChange(AppMode.PREVIEW)} />;
 
       case AppMode.TEST:
         return (
@@ -66,9 +112,9 @@ export default function App() {
             words={words} 
             onComplete={(results) => {
                 setTestResults(results);
-                setMode(AppMode.RESULT);
+                handleModeChange(AppMode.RESULT);
             }} 
-            onCancel={() => setMode(AppMode.PREVIEW)} 
+            onCancel={() => handleModeChange(AppMode.PREVIEW)} 
           />
         );
 
@@ -76,8 +122,8 @@ export default function App() {
         return (
             <ResultScreen 
                 results={testResults} 
-                onHome={() => setMode(AppMode.MENU)}
-                onRetry={() => setMode(AppMode.TEST)}
+                onHome={() => handleModeChange(AppMode.MENU)}
+                onRetry={() => handleModeChange(AppMode.TEST)}
             />
         );
 
@@ -90,7 +136,7 @@ export default function App() {
                      <button onClick={downloadList} className="text-indigo-600 hover:bg-indigo-50 px-3 py-2 rounded text-sm font-medium">
                         שמור
                      </button>
-                     <button onClick={() => setMode(AppMode.CREATE_LIST)} className="text-gray-600 hover:bg-gray-100 px-3 py-2 rounded text-sm font-medium">
+                     <button onClick={() => handleModeChange(AppMode.CREATE_LIST)} className="text-gray-600 hover:bg-gray-100 px-3 py-2 rounded text-sm font-medium">
                         ערוך
                      </button>
                 </div>
@@ -117,20 +163,20 @@ export default function App() {
 
             <div className="mt-4 md:mt-6 shrink-0 flex flex-col-reverse md:flex-row justify-between gap-3">
                 <button 
-                    onClick={() => setMode(AppMode.MENU)}
+                    onClick={() => handleModeChange(AppMode.MENU)}
                     className="w-full md:w-auto px-6 py-3 text-gray-600 font-medium hover:bg-gray-100 rounded-xl"
                 >
                     חזרה
                 </button>
                 <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
                     <button 
-                        onClick={() => setMode(AppMode.PRACTICE)}
+                        onClick={() => handleModeChange(AppMode.PRACTICE)}
                         className="w-full md:w-auto px-6 py-3 bg-indigo-100 text-indigo-700 font-bold rounded-xl hover:bg-indigo-200 transition-colors"
                     >
                         תרגול כרטיסיות
                     </button>
                     <button 
-                        onClick={() => setMode(AppMode.TEST)}
+                        onClick={() => handleModeChange(AppMode.TEST)}
                         className="w-full md:w-auto px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 shadow-md hover:shadow-lg transition-all"
                     >
                         התחל מבחן
@@ -143,47 +189,14 @@ export default function App() {
       case AppMode.MENU:
       default:
         return (
-          <div className="text-center max-w-lg mx-auto w-full px-4">
-            <h1 className="text-5xl md:text-6xl font-extrabold text-transparent bg-clip-text bg-gradient-to-l from-indigo-600 to-purple-600 mb-2">Dixi</h1>
-            <p className="text-gray-500 mb-8 md:mb-12 text-lg">שפר את אוצר המילים והכתיב שלך.</p>
-            
-            <div className="space-y-4">
-                <button 
-                    onClick={() => setMode(AppMode.CREATE_LIST)}
-                    className="w-full bg-white p-6 rounded-2xl shadow-sm border-2 border-transparent hover:border-indigo-500 hover:shadow-md transition-all group flex items-center justify-between"
-                >
-                    <span className="text-lg md:text-xl font-bold text-gray-800 group-hover:text-indigo-600">צור רשימה חדשה</span>
-                    <span className="text-2xl">📝</span>
-                </button>
-
-                <div className="relative">
-                    <input 
-                        type="file" 
-                        ref={fileInputRef}
-                        accept=".json"
-                        className="hidden" 
-                        onChange={uploadList}
-                    />
-                    <button 
-                        onClick={() => fileInputRef.current?.click()}
-                        className="w-full bg-white p-6 rounded-2xl shadow-sm border-2 border-transparent hover:border-indigo-500 hover:shadow-md transition-all group flex items-center justify-between"
-                    >
-                        <span className="text-lg md:text-xl font-bold text-gray-800 group-hover:text-indigo-600">טען רשימה שמורה</span>
-                        <span className="text-2xl">📂</span>
-                    </button>
-                </div>
-
-                {words.length > 0 && (
-                     <button 
-                        onClick={() => setMode(AppMode.PREVIEW)}
-                        className="w-full bg-indigo-600 p-6 rounded-2xl shadow-lg hover:bg-indigo-700 transition-all text-white flex items-center justify-between"
-                    >
-                        <span className="text-lg md:text-xl font-bold">המשך עם הרשימה</span>
-                        <span className="text-2xl">👉</span>
-                    </button>
-                )}
-            </div>
-          </div>
+          <LandingPage 
+            hasWords={words.length > 0}
+            onCreateList={() => handleModeChange(AppMode.CREATE_LIST)}
+            onLoadList={() => fileInputRef.current?.click()}
+            onContinue={() => handleModeChange(AppMode.PREVIEW)}
+            fileInputRef={fileInputRef}
+            onFileUpload={uploadList}
+          />
         );
     }
   };
@@ -192,9 +205,9 @@ export default function App() {
     <div className="h-[100dvh] bg-slate-50 flex flex-col overflow-hidden">
       <header className="bg-white border-b border-gray-200 py-3 md:py-4 px-4 md:px-6 shrink-0 z-50">
         <div className="max-w-6xl mx-auto flex justify-between items-center">
-            <h1 className="text-2xl font-bold text-indigo-600 cursor-pointer" onClick={() => setMode(AppMode.MENU)}>Dixi</h1>
+            <h1 className="text-2xl font-bold text-indigo-600 cursor-pointer" onClick={() => handleModeChange(AppMode.MENU)}>Dixi</h1>
             {mode !== AppMode.MENU && (
-                <button onClick={() => setMode(AppMode.MENU)} className="text-sm text-gray-500 hover:text-indigo-600">
+                <button onClick={() => handleModeChange(AppMode.MENU)} className="text-sm text-gray-500 hover:text-indigo-600">
                     יציאה
                 </button>
             )}
