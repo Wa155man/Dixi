@@ -83,15 +83,15 @@ export default function App() {
 
       case AppMode.PREVIEW:
         return (
-          <div className="bg-white rounded-xl shadow-lg p-6 max-w-4xl w-full mx-auto flex flex-col h-[80vh]">
-            <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-bold text-gray-800">סקירת מילים</h2>
+          <div className="bg-white rounded-xl shadow-lg p-4 md:p-6 max-w-4xl w-full mx-auto flex flex-col h-full max-h-[85dvh]">
+            <div className="flex justify-between items-center mb-4 md:mb-6 shrink-0">
+                <h2 className="text-xl md:text-2xl font-bold text-gray-800">סקירת מילים</h2>
                 <div className="flex gap-2">
                      <button onClick={downloadList} className="text-indigo-600 hover:bg-indigo-50 px-3 py-2 rounded text-sm font-medium">
-                        שמור לקובץ
+                        שמור
                      </button>
                      <button onClick={() => setMode(AppMode.CREATE_LIST)} className="text-gray-600 hover:bg-gray-100 px-3 py-2 rounded text-sm font-medium">
-                        ערוך רשימה
+                        ערוך
                      </button>
                 </div>
             </div>
@@ -115,23 +115,23 @@ export default function App() {
                 </table>
             </div>
 
-            <div className="mt-6 flex justify-between gap-4">
+            <div className="mt-4 md:mt-6 shrink-0 flex flex-col-reverse md:flex-row justify-between gap-3">
                 <button 
                     onClick={() => setMode(AppMode.MENU)}
-                    className="px-6 py-3 text-gray-600 font-medium hover:bg-gray-100 rounded-xl"
+                    className="w-full md:w-auto px-6 py-3 text-gray-600 font-medium hover:bg-gray-100 rounded-xl"
                 >
                     חזרה
                 </button>
-                <div className="flex gap-3">
+                <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
                     <button 
                         onClick={() => setMode(AppMode.PRACTICE)}
-                        className="px-6 py-3 bg-indigo-100 text-indigo-700 font-bold rounded-xl hover:bg-indigo-200 transition-colors"
+                        className="w-full md:w-auto px-6 py-3 bg-indigo-100 text-indigo-700 font-bold rounded-xl hover:bg-indigo-200 transition-colors"
                     >
                         תרגול כרטיסיות
                     </button>
                     <button 
                         onClick={() => setMode(AppMode.TEST)}
-                        className="px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 shadow-md hover:shadow-lg transition-all"
+                        className="w-full md:w-auto px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 shadow-md hover:shadow-lg transition-all"
                     >
                         התחל מבחן
                     </button>
@@ -143,16 +143,16 @@ export default function App() {
       case AppMode.MENU:
       default:
         return (
-          <div className="text-center max-w-lg mx-auto w-full">
-            <h1 className="text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-l from-indigo-600 to-purple-600 mb-2">Dixi</h1>
-            <p className="text-gray-500 mb-10 text-lg">שפר את אוצר המילים והכתיב שלך.</p>
+          <div className="text-center max-w-lg mx-auto w-full px-4">
+            <h1 className="text-5xl md:text-6xl font-extrabold text-transparent bg-clip-text bg-gradient-to-l from-indigo-600 to-purple-600 mb-2">Dixi</h1>
+            <p className="text-gray-500 mb-8 md:mb-12 text-lg">שפר את אוצר המילים והכתיב שלך.</p>
             
             <div className="space-y-4">
                 <button 
                     onClick={() => setMode(AppMode.CREATE_LIST)}
                     className="w-full bg-white p-6 rounded-2xl shadow-sm border-2 border-transparent hover:border-indigo-500 hover:shadow-md transition-all group flex items-center justify-between"
                 >
-                    <span className="text-xl font-bold text-gray-800 group-hover:text-indigo-600">צור רשימה חדשה</span>
+                    <span className="text-lg md:text-xl font-bold text-gray-800 group-hover:text-indigo-600">צור רשימה חדשה</span>
                     <span className="text-2xl">📝</span>
                 </button>
 
@@ -168,7 +168,7 @@ export default function App() {
                         onClick={() => fileInputRef.current?.click()}
                         className="w-full bg-white p-6 rounded-2xl shadow-sm border-2 border-transparent hover:border-indigo-500 hover:shadow-md transition-all group flex items-center justify-between"
                     >
-                        <span className="text-xl font-bold text-gray-800 group-hover:text-indigo-600">טען רשימה שמורה</span>
+                        <span className="text-lg md:text-xl font-bold text-gray-800 group-hover:text-indigo-600">טען רשימה שמורה</span>
                         <span className="text-2xl">📂</span>
                     </button>
                 </div>
@@ -178,7 +178,7 @@ export default function App() {
                         onClick={() => setMode(AppMode.PREVIEW)}
                         className="w-full bg-indigo-600 p-6 rounded-2xl shadow-lg hover:bg-indigo-700 transition-all text-white flex items-center justify-between"
                     >
-                        <span className="text-xl font-bold">המשך עם הרשימה הנוכחית</span>
+                        <span className="text-lg md:text-xl font-bold">המשך עם הרשימה</span>
                         <span className="text-2xl">👉</span>
                     </button>
                 )}
@@ -189,18 +189,18 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
-      <header className="bg-white border-b border-gray-200 py-4 px-6 sticky top-0 z-50">
+    <div className="h-[100dvh] bg-slate-50 flex flex-col overflow-hidden">
+      <header className="bg-white border-b border-gray-200 py-3 md:py-4 px-4 md:px-6 shrink-0 z-50">
         <div className="max-w-6xl mx-auto flex justify-between items-center">
             <h1 className="text-2xl font-bold text-indigo-600 cursor-pointer" onClick={() => setMode(AppMode.MENU)}>Dixi</h1>
             {mode !== AppMode.MENU && (
                 <button onClick={() => setMode(AppMode.MENU)} className="text-sm text-gray-500 hover:text-indigo-600">
-                    יציאה לתפריט
+                    יציאה
                 </button>
             )}
         </div>
       </header>
-      <main className="flex-1 flex items-center justify-center p-4">
+      <main className="flex-1 flex items-center justify-center p-2 md:p-4 w-full relative">
         {renderContent()}
       </main>
     </div>

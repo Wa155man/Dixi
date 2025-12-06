@@ -73,42 +73,42 @@ export const InputSection: React.FC<InputSectionProps> = ({ onSave, onCancel, in
   };
 
   return (
-    <div className="bg-white p-6 rounded-xl shadow-lg w-full max-w-4xl mx-auto flex flex-col h-full max-h-[80vh]">
-      <h2 className="text-2xl font-bold mb-4 text-indigo-700">יצירת רשימה</h2>
+    <div className="bg-white p-4 md:p-6 rounded-xl shadow-lg w-full max-w-4xl mx-auto flex flex-col h-full max-h-[85dvh]">
+      <h2 className="text-xl md:text-2xl font-bold mb-4 text-indigo-700 shrink-0">יצירת רשימה</h2>
       
-      <div className="flex border-b border-gray-200 mb-4 gap-2">
+      <div className="flex flex-wrap border-b border-gray-200 mb-4 gap-1 shrink-0">
         <button
-          className={`py-2 px-4 font-medium transition-colors ${activeTab === 'manual' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
+          className={`py-2 px-3 text-sm md:text-base font-medium transition-colors rounded-t-lg ${activeTab === 'manual' ? 'bg-indigo-50 text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
           onClick={() => setActiveTab('manual')}
         >
           הזנה ידנית
         </button>
         <button
-          className={`py-2 px-4 font-medium transition-colors ${activeTab === 'paste' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
+          className={`py-2 px-3 text-sm md:text-base font-medium transition-colors rounded-t-lg ${activeTab === 'paste' ? 'bg-indigo-50 text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
           onClick={() => setActiveTab('paste')}
         >
           הדבק רשימה
         </button>
         <button
-          className={`py-2 px-4 font-medium transition-colors ${activeTab === 'pairs' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
+          className={`py-2 px-3 text-sm md:text-base font-medium transition-colors rounded-t-lg ${activeTab === 'pairs' ? 'bg-indigo-50 text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
           onClick={() => setActiveTab('pairs')}
         >
-          זוגות (מילה - הגדרה)
+          זוגות
         </button>
       </div>
 
       <div className="flex-1 overflow-y-auto pl-2 custom-scrollbar">
         {activeTab === 'manual' && (
-          <div className="space-y-2">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-3 pb-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {manualInputs.map((input, idx) => (
                 <div key={idx} className="flex items-center gap-2">
-                  <span className="text-gray-400 text-sm w-6">{idx + 1}.</span>
+                  <span className="text-gray-400 text-sm w-6 text-center">{idx + 1}.</span>
                   <input
                     type="text"
                     value={input.term}
                     onChange={(e) => handleManualChange(idx, e.target.value)}
-                    className="flex-1 border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                    className="flex-1 border border-gray-300 rounded-md px-3 py-3 md:py-2 text-base focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                     placeholder="הקלד מילה"
                   />
                 </div>
@@ -116,7 +116,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ onSave, onCancel, in
             </div>
             <button
               onClick={addMoreManual}
-              className="mt-4 text-sm text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1"
+              className="mt-4 w-full sm:w-auto py-3 sm:py-2 text-sm text-indigo-600 hover:text-indigo-800 font-medium flex items-center justify-center gap-1 border border-indigo-100 rounded-lg bg-indigo-50"
             >
               + הוסף 10 שורות נוספות
             </button>
@@ -124,9 +124,9 @@ export const InputSection: React.FC<InputSectionProps> = ({ onSave, onCancel, in
         )}
 
         {activeTab === 'paste' && (
-          <div className="h-full">
+          <div className="h-full pb-4">
             <textarea
-              className="w-full h-64 md:h-full p-4 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono text-sm"
+              className="w-full h-full p-4 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono text-base"
               placeholder="הדבק את רשימת המילים כאן, כל מילה בשורה חדשה..."
               value={pasteContent}
               onChange={(e) => setPasteContent(e.target.value)}
@@ -135,10 +135,10 @@ export const InputSection: React.FC<InputSectionProps> = ({ onSave, onCancel, in
         )}
 
         {activeTab === 'pairs' && (
-          <div className="h-full">
+          <div className="h-full pb-4">
             <div className="mb-2 text-sm text-gray-500">פורמט: מילה - הגדרה (אחת בכל שורה)</div>
             <textarea
-              className="w-full h-64 md:h-full p-4 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono text-sm"
+              className="w-full h-full p-4 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono text-base"
               placeholder={'תפוח - פרי עגול ואדום\nפיל - חיה גדולה עם חדק'}
               value={pairsContent}
               onChange={(e) => setPairsContent(e.target.value)}
@@ -147,16 +147,16 @@ export const InputSection: React.FC<InputSectionProps> = ({ onSave, onCancel, in
         )}
       </div>
 
-      <div className="mt-6 flex justify-end gap-3 pt-4 border-t border-gray-100">
+      <div className="mt-4 shrink-0 flex justify-end gap-3 pt-4 border-t border-gray-100">
         <button
           onClick={onCancel}
-          className="px-6 py-2 rounded-lg text-gray-600 hover:bg-gray-100 font-medium transition-colors"
+          className="px-6 py-3 md:py-2 rounded-lg text-gray-600 hover:bg-gray-100 font-medium transition-colors text-sm md:text-base"
         >
           ביטול
         </button>
         <button
           onClick={processAndSave}
-          className="px-6 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition-colors shadow-sm"
+          className="px-6 py-3 md:py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition-colors shadow-sm text-sm md:text-base"
         >
           צור רשימה
         </button>
