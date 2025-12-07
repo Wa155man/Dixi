@@ -53,7 +53,7 @@ const playTextToSpeech = async (text: string): Promise<void> => {
 
     if (!buffer) {
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash", 
+        model: "gemini-2.5-flash-preview-tts", 
         contents: [{ parts: [{ text: `Say the following word or phrase clearly: ${cleanText}` }] }],
         config: {
           responseModalities: [Modality.AUDIO], 

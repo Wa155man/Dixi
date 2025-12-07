@@ -20,7 +20,24 @@ const App = () => {
   const [testResults, setTestResults] = useState<TestResult[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Initialize from LocalStorage and URL for main list
+  const updateUrl = (newMode: any, replace = false) => {
+    const url = new URL(window.location.href);
+    if (newMode === AppMode.MENU) {
+        url.searchParams.delete('page');
+    } else {
+        url.searchParams.set('page', newMode);
+    }
+    
+    if (url.href !== window.location.href) {
+        if (replace) {
+            window.history.replaceState({}, '', url.toString());
+        } else {
+            window.history.pushState({}, '', url.toString());
+        }
+    }
+  };
+
+  // Initialize from LocalStorage and URL
   useEffect(() => {
     try {
       const savedWords = localStorage.getItem('dixi_words');
@@ -30,6 +47,28 @@ const App = () => {
         setWords(loadedWords);
       }
 
+      // Handle SPA redirect from 404.html on services like GitHub Pages
+      const redirectPath = sessionStorage.getItem('redirect');
+      if (redirectPath) {
+        sessionStorage.removeItem('redirect');
+        const redirectUrl = new URL(redirectPath);
+        const page = redirectUrl.searchParams.get('page');
+
+        if (page && Object.values(AppMode).includes(page)) {
+          // If trying to access a page that requires words, but none are loaded, go to menu
+          if ((page === AppMode.PRACTICE || page === AppMode.TEST || page === AppMode.PREVIEW) && loadedWords.length === 0) {
+            setMode(AppMode.MENU);
+            updateUrl(AppMode.MENU, true);
+          } else {
+            setMode(page);
+            // Restore the intended URL in the address bar
+            window.history.replaceState({}, '', redirectUrl.toString());
+          }
+          return; // Initialization is complete
+        }
+      }
+
+      // Standard initialization from the current URL if no redirect was handled
       const params = new URLSearchParams(window.location.search);
       const page = params.get('page');
       
@@ -37,7 +76,7 @@ const App = () => {
         // Only allow navigation to functional modes if we have words
         if ((page === AppMode.PRACTICE || page === AppMode.TEST || page === AppMode.PREVIEW) && loadedWords.length === 0) {
            setMode(AppMode.MENU);
-           updateUrl(AppMode.MENU);
+           updateUrl(AppMode.MENU, true);
         } else {
            setMode(page);
         }
@@ -45,6 +84,7 @@ const App = () => {
     } catch (e) {
       console.error("Error initializing app:", e);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Update LocalStorage whenever words change
@@ -58,12 +98,6 @@ const App = () => {
   useEffect(() => {
     localStorage.setItem('dixi_review_words', JSON.stringify(reviewWords));
   }, [reviewWords]);
-
-  const updateUrl = (newMode: any) => {
-    const url = new URL(window.location.href);
-    url.searchParams.set('page', newMode);
-    window.history.pushState({}, '', url);
-  };
 
   const handleModeChange = (newMode: any) => {
     setMode(newMode);
