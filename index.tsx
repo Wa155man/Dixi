@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import ReactDOM from 'react-dom/client';
+import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, Modality } from "@google/genai";
 
 // =================================================================================
@@ -82,15 +82,18 @@ async function decodeAudioData(
 }
 
 // --- Gemini Service ---
-// Safer access to process.env
 const getApiKey = () => (window as any).process?.env?.API_KEY || '';
 
-// Lazy initialization of AI client
 let aiClient: GoogleGenAI | null = null;
 const getAiClient = () => {
     if (!aiClient) {
-        const apiKey = getApiKey();
-        aiClient = new GoogleGenAI({ apiKey });
+        try {
+            const apiKey = getApiKey();
+            aiClient = new GoogleGenAI({ apiKey: apiKey || 'dummy' });
+        } catch (e) {
+            console.error("Failed to initialize GoogleGenAI", e);
+            return null;
+        }
     }
     return aiClient;
 };
@@ -102,16 +105,22 @@ const getAudioContext = () => {
   if (!audioContext) {
     audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
   }
-  if (audioContext.state === 'suspended') {
-    audioContext.resume();
-  }
   return audioContext;
 };
 
 const playTextToSpeech = async (text: string): Promise<void> => {
   const ctx = getAudioContext();
-  const cleanText = text?.trim();
+  
+  // Ensure context is running
+  if (ctx.state === 'suspended') {
+    try {
+        await ctx.resume();
+    } catch (e) {
+        console.warn("Could not resume audio context", e);
+    }
+  }
 
+  const cleanText = text?.trim();
   if (!cleanText) return;
   
   const fallbackToBrowserTTS = () => {
@@ -139,8 +148,8 @@ const playTextToSpeech = async (text: string): Promise<void> => {
     let buffer = audioCache[cleanText];
 
     if (!buffer) {
-      // Lazy init here
       const ai = getAiClient();
+      if (!ai) return fallbackToBrowserTTS();
       
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash-preview-tts", 
@@ -156,16 +165,12 @@ const playTextToSpeech = async (text: string): Promise<void> => {
       });
 
       const part = response.candidates?.[0]?.content?.parts?.[0];
-      
       if (part?.text) {
-          console.warn("Gemini returned text instead of audio. Using fallback.");
           return fallbackToBrowserTTS();
       }
 
       const base64Audio = part?.inlineData?.data;
-      
       if (!base64Audio) {
-        console.warn("Gemini returned empty response. Using fallback.");
         return fallbackToBrowserTTS();
       }
 
@@ -216,11 +221,59 @@ const LandingPage = ({
   fileInputRef,
   onFileUpload
 }: LandingPageProps) => {
+  const [isStarted, setIsStarted] = useState(false);
+
+  const handleStart = async () => {
+    try {
+      // 1. Resume Audio Context (unlocks playback)
+      const ctx = getAudioContext();
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
+
+      // 2. Request Mic Permission (satisfies browser policy)
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      setIsStarted(true);
+    } catch (e) {
+      console.error("Permission request failed", e);
+      // Even if failed, we let them in, but features might be limited
+      alert("שים לב: ללא אישור מיקרופון/שמע, חלק מהפונקציות לא יעבדו.");
+      setIsStarted(true);
+    }
+  };
+
+  if (!isStarted) {
+      return (
+        <div className="text-center max-w-lg mx-auto w-full px-4 flex flex-col items-center justify-center h-full">
+            <div className="mb-8 md:mb-12">
+                <h1 className="text-5xl md:text-7xl font-extrabold text-transparent bg-clip-text bg-gradient-to-l from-indigo-600 to-purple-600 mb-4 tracking-tight">Dixi</h1>
+                <p className="text-gray-500 text-lg md:text-xl font-light">שפר את אוצר המילים והכתיב שלך</p>
+            </div>
+            
+            <button 
+                 onClick={handleStart}
+                 className="w-full bg-indigo-600 p-8 rounded-3xl shadow-xl hover:bg-indigo-700 hover:shadow-2xl transition-all text-white flex flex-col items-center justify-center gap-4 group ring-4 ring-indigo-50"
+             >
+                 <span className="text-2xl font-bold">התחל</span>
+                 <div className="flex items-center gap-2 text-indigo-100 text-sm">
+                    <span>לחץ לאישור שמע ומיקרופון</span>
+                    <span className="text-xl">🎙️</span>
+                 </div>
+             </button>
+             
+             <div className="mt-12 text-xs text-gray-400">
+                נדרש אישור דפדפן להפעלת שמע
+             </div>
+        </div>
+      );
+  }
+
   return (
-    <div className="text-center max-w-lg mx-auto w-full px-4 flex flex-col items-center justify-center h-full">
-      <div className="mb-8 md:mb-12">
-        <h1 className="text-5xl md:text-7xl font-extrabold text-transparent bg-clip-text bg-gradient-to-l from-indigo-600 to-purple-600 mb-4 tracking-tight">Dixi</h1>
-        <p className="text-gray-500 text-lg md:text-xl font-light">שפר את אוצר המילים והכתיב שלך</p>
+    <div className="text-center max-w-lg mx-auto w-full px-4 flex flex-col items-center justify-center h-full animate-fade-in">
+      <div className="mb-6 md:mb-8">
+        <h1 className="text-4xl font-extrabold text-indigo-600 mb-2">Dixi</h1>
+        <p className="text-gray-400">תפריט ראשי</p>
       </div>
       
       <div className="space-y-4 w-full">
@@ -270,8 +323,8 @@ const LandingPage = ({
           )}
       </div>
       
-      <div className="mt-12 text-xs text-gray-400">
-        פועל בדפדפן ובמובייל • גרסה 1.2
+      <div className="mt-8 text-xs text-gray-400">
+        גרסה 1.4
       </div>
     </div>
   );
@@ -450,7 +503,19 @@ const PracticeMode: React.FC<PracticeModeProps> = ({ words, onBack, onAddToRevie
   const [isFlipped, setIsFlipped] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
 
+  // Safety check
+  if (!queue || queue.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full">
+         <p className="text-gray-500 mb-4">אין מילים לתרגול.</p>
+         <button onClick={onBack} className="text-indigo-600">חזרה</button>
+      </div>
+    );
+  }
+
   const currentWord = queue[currentIndex];
+  // Guard against index out of bounds if queue changes unexpectedly
+  if (!currentWord) return null;
 
   const handleNext = () => {
     setIsFlipped(false);
@@ -595,7 +660,19 @@ const TestMode: React.FC<TestModeProps> = ({ words, onComplete, onCancel }) => {
   const [testStarted, setTestStarted] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Guard clause
+  if (!words || words.length === 0) {
+     return (
+        <div className="flex flex-col items-center justify-center h-full">
+            <p className="text-gray-500 mb-4">אין מילים למבחן.</p>
+            <button onClick={onCancel} className="text-indigo-600">חזרה</button>
+        </div>
+     );
+  }
+
   const currentWord = words[currentIndex];
+  // Safe guard
+  if (!currentWord) return null;
 
   useEffect(() => {
     setUserInput('');
@@ -1007,7 +1084,7 @@ if (!rootElement) {
   throw new Error("Could not find root element to mount to");
 }
 
-const root = ReactDOM.createRoot(rootElement);
+const root = createRoot(rootElement);
 root.render(
   <React.StrictMode>
     <App />

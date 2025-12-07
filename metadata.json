@@ -1,5 +1,7 @@
 {
   "name": "Dixi",
   "description": "אפליקציה מקיפה לתרגול הכתבות ואוצר מילים לתלמידים. כוללת כרטיסיות תרגול, רשימות מותאמות אישית, מבחני שמע ומעקב התקדמות.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "microphone"
+  ]
 }
