@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { WordItem, TestResult } from '../types.ts';
-import { playTextToSpeech } from '../services/geminiService.ts';
-import { checkAnswer } from '../utils.ts';
+
+// Get global deps
+const { playTextToSpeech } = (window as any).Dixi.services.geminiService;
+const { checkAnswer } = (window as any).Dixi.utils;
 
 interface TestModeProps {
   words: WordItem[];
@@ -9,7 +11,7 @@ interface TestModeProps {
   onCancel: () => void;
 }
 
-export const TestMode: React.FC<TestModeProps> = ({ words, onComplete, onCancel }) => {
+const TestMode: React.FC<TestModeProps> = ({ words, onComplete, onCancel }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [userInput, setUserInput] = useState('');
   const [results, setResults] = useState<TestResult[]>([]);
@@ -142,3 +144,6 @@ export const TestMode: React.FC<TestModeProps> = ({ words, onComplete, onCancel 
     </div>
   );
 };
+
+// Register
+(window as any).Dixi.components.TestMode = TestMode;

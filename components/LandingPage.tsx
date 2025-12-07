@@ -1,19 +1,24 @@
 import React from 'react';
+import { WordItem } from '../types.ts';
 
 interface LandingPageProps {
   hasWords: boolean;
   onCreateList: () => void;
   onLoadList: () => void;
   onContinue: () => void;
+  reviewCount: number;
+  onLoadReview: () => void;
   fileInputRef: React.RefObject<HTMLInputElement>;
   onFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }
 
-export const LandingPage: React.FC<LandingPageProps> = ({
+const LandingPage: React.FC<LandingPageProps> = ({
   hasWords,
   onCreateList,
   onLoadList,
   onContinue,
+  reviewCount,
+  onLoadReview,
   fileInputRef,
   onFileUpload
 }) => {
@@ -49,6 +54,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   <span className="text-3xl">📂</span>
               </button>
           </div>
+          
+          {reviewCount > 0 && (
+             <button 
+                 onClick={onLoadReview}
+                 className="w-full bg-amber-50 p-6 rounded-2xl shadow-sm border-2 border-amber-200 hover:border-amber-400 hover:shadow-md transition-all group flex items-center justify-between"
+             >
+                 <span className="text-lg md:text-xl font-bold text-gray-800 group-hover:text-amber-700">תרגל מילים לסקירה ({reviewCount})</span>
+                 <span className="text-3xl">⭐</span>
+             </button>
+          )}
 
           {hasWords && (
                <button 
@@ -62,8 +77,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       </div>
       
       <div className="mt-12 text-xs text-gray-400">
-        פועל בדפדפן ובמובייל • גרסה 1.1
+        פועל בדפדפן ובמובייל • גרסה 1.2
       </div>
     </div>
   );
 };
+
+// Register
+(window as any).Dixi.components.LandingPage = LandingPage;

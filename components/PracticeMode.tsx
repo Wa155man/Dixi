@@ -1,13 +1,16 @@
 import React, { useState } from 'react';
 import { WordItem } from '../types.ts';
-import { playTextToSpeech } from '../services/geminiService.ts';
+
+// Get services from global
+const { playTextToSpeech } = (window as any).Dixi.services.geminiService;
 
 interface PracticeModeProps {
   words: WordItem[];
   onBack: () => void;
+  onAddToReview: (word: WordItem) => void;
 }
 
-export const PracticeMode: React.FC<PracticeModeProps> = ({ words, onBack }) => {
+const PracticeMode: React.FC<PracticeModeProps> = ({ words, onBack, onAddToReview }) => {
   const [queue, setQueue] = useState<WordItem[]>(words);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
@@ -35,6 +38,12 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({ words, onBack }) => 
     
     // Move to next word immediately
     setCurrentIndex((prev) => (prev + 1) % newQueue.length);
+  };
+
+  const handleSaveForReview = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onAddToReview(currentWord);
+    handleNext();
   };
 
   const handleSpeak = async (e: React.MouseEvent) => {
@@ -109,25 +118,33 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({ words, onBack }) => 
         </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-3 mt-8 w-full justify-center items-center">
+      <div className="grid grid-cols-2 sm:flex sm:flex-row gap-3 mt-8 w-full justify-center items-center">
         <button 
           onClick={handlePrev}
-          className="order-1 sm:order-none bg-white border border-gray-200 text-gray-700 px-6 py-3 rounded-xl hover:bg-gray-50 font-medium transition-all shadow-sm w-full sm:w-32"
+          className="col-span-1 bg-white border border-gray-200 text-gray-700 px-4 py-3 rounded-xl hover:bg-gray-50 font-medium transition-all shadow-sm w-full sm:w-28"
         >
           הקודם
         </button>
         
         <button 
           onClick={handleForgot}
-          className="order-3 sm:order-none bg-orange-100 text-orange-700 border border-orange-200 px-6 py-3 rounded-xl hover:bg-orange-200 font-medium transition-all shadow-sm w-full sm:w-auto flex items-center justify-center gap-2"
+          className="col-span-1 bg-orange-50 text-orange-700 border border-orange-200 px-4 py-3 rounded-xl hover:bg-orange-100 font-medium transition-all shadow-sm w-full sm:w-auto flex items-center justify-center gap-1"
         >
-          <span className="text-xl">↺</span>
-          לתרגל שוב
+          <span className="text-lg">↺</span>
+          שוב
+        </button>
+
+        <button 
+          onClick={handleSaveForReview}
+          className="col-span-1 bg-teal-50 text-teal-700 border border-teal-200 px-4 py-3 rounded-xl hover:bg-teal-100 font-medium transition-all shadow-sm w-full sm:w-auto flex items-center justify-center gap-1"
+        >
+          <span className="text-lg">⭐</span>
+          לסקירה
         </button>
 
         <button 
           onClick={handleNext}
-          className="order-2 sm:order-none bg-indigo-600 text-white px-6 py-3 rounded-xl hover:bg-indigo-700 font-medium transition-all shadow-md w-full sm:w-32"
+          className="col-span-1 bg-indigo-600 text-white px-4 py-3 rounded-xl hover:bg-indigo-700 font-medium transition-all shadow-md w-full sm:w-28"
         >
           הבא
         </button>
@@ -135,3 +152,6 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({ words, onBack }) => 
     </div>
   );
 };
+
+// Register
+(window as any).Dixi.components.PracticeMode = PracticeMode;

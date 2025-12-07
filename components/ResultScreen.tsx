@@ -7,7 +7,7 @@ interface ResultScreenProps {
   onRetry: () => void;
 }
 
-export const ResultScreen: React.FC<ResultScreenProps> = ({ results, onHome, onRetry }) => {
+const ResultScreen: React.FC<ResultScreenProps> = ({ results, onHome, onRetry }) => {
   const correctCount = results.filter(r => r.isCorrect).length;
   const percentage = Math.round((correctCount / results.length) * 100);
 
@@ -74,3 +74,6 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({ results, onHome, onR
     </div>
   );
 };
+
+// Register
+(window as any).Dixi.components.ResultScreen = ResultScreen;

@@ -19,6 +19,13 @@
     <!-- Polyfill for process.env -->
     <script>
       window.process = { env: { API_KEY: '' } };
+      // Initialize Global Namespace for the app
+      window.Dixi = {
+        types: {},
+        utils: {},
+        services: {},
+        components: {}
+      };
     </script>
     
     <!-- Babel for on-the-fly compilation -->
@@ -59,8 +66,8 @@
     <script type="importmap">
 {
   "imports": {
-    "react": "https://esm.sh/react@18.2.0",
-    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+    "react": "https://esm.sh/react@18.2.0?dev",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client?dev",
     "@google/genai": "https://esm.sh/@google/genai@0.1.1",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
     "react/": "https://aistudiocdn.com/react@^19.2.1/"
@@ -70,7 +77,22 @@
 </head>
   <body class="bg-slate-50 text-slate-900 min-h-screen h-[100dvh] overflow-hidden">
     <div id="root" class="h-full w-full"></div>
-    <!-- Load the app with Babel handling the TSX/TS compilation -->
+
+    <!-- Load scripts sequentially. Order matters due to dependencies. -->
+    <script type="text/babel" data-type="module" data-presets="react,typescript" src="./types.ts"></script>
+    <script type="text/babel" data-type="module" data-presets="react,typescript" src="./utils.ts"></script>
+    <script type="text/babel" data-type="module" data-presets="react,typescript" src="./services/audioUtils.ts"></script>
+    <script type="text/babel" data-type="module" data-presets="react,typescript" src="./services/geminiService.ts"></script>
+    
+    <!-- Components -->
+    <script type="text/babel" data-type="module" data-presets="react,typescript" src="./components/LandingPage.tsx"></script>
+    <script type="text/babel" data-type="module" data-presets="react,typescript" src="./components/ResultScreen.tsx"></script>
+    <script type="text/babel" data-type="module" data-presets="react,typescript" src="./components/PracticeMode.tsx"></script>
+    <script type="text/babel" data-type="module" data-presets="react,typescript" src="./components/TestMode.tsx"></script>
+    <script type="text/babel" data-type="module" data-presets="react,typescript" src="./components/InputSection.tsx"></script>
+    
+    <!-- Main App and Entry -->
+    <script type="text/babel" data-type="module" data-presets="react,typescript" src="./App.tsx"></script>
     <script type="text/babel" data-type="module" data-presets="react,typescript" src="./index.tsx"></script>
   </body>
 </html>

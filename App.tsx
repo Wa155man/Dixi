@@ -1,18 +1,26 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { WordItem, AppMode, TestResult } from './types.ts';
-import { InputSection } from './components/InputSection.tsx';
-import { PracticeMode } from './components/PracticeMode.tsx';
-import { TestMode } from './components/TestMode.tsx';
-import { ResultScreen } from './components/ResultScreen.tsx';
-import { LandingPage } from './components/LandingPage.tsx';
+import { WordItem, TestResult } from './types.ts';
 
-export default function App() {
+// Destructure from Global Namespace
+const { InputSection, PracticeMode, TestMode, ResultScreen, LandingPage } = (window as any).Dixi.components;
+const { AppMode } = (window as any).Dixi.types;
+
+const App = () => {
   const [words, setWords] = useState<WordItem[]>([]);
-  const [mode, setMode] = useState<AppMode>(AppMode.MENU);
+  
+  // Lazy init review words to avoid overwriting with empty array on first render
+  const [reviewWords, setReviewWords] = useState<WordItem[]>(() => {
+    try {
+        const saved = localStorage.getItem('dixi_review_words');
+        return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+
+  const [mode, setMode] = useState<any>(AppMode.MENU);
   const [testResults, setTestResults] = useState<TestResult[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Initialize from LocalStorage and URL
+  // Initialize from LocalStorage and URL for main list
   useEffect(() => {
     try {
       const savedWords = localStorage.getItem('dixi_words');
@@ -25,13 +33,13 @@ export default function App() {
       const params = new URLSearchParams(window.location.search);
       const page = params.get('page');
       
-      if (page && Object.values(AppMode).includes(page as AppMode)) {
+      if (page && Object.values(AppMode).includes(page)) {
         // Only allow navigation to functional modes if we have words
         if ((page === AppMode.PRACTICE || page === AppMode.TEST || page === AppMode.PREVIEW) && loadedWords.length === 0) {
            setMode(AppMode.MENU);
            updateUrl(AppMode.MENU);
         } else {
-           setMode(page as AppMode);
+           setMode(page);
         }
       }
     } catch (e) {
@@ -46,13 +54,18 @@ export default function App() {
     }
   }, [words]);
 
-  const updateUrl = (newMode: AppMode) => {
+  // Update LocalStorage whenever review words change
+  useEffect(() => {
+    localStorage.setItem('dixi_review_words', JSON.stringify(reviewWords));
+  }, [reviewWords]);
+
+  const updateUrl = (newMode: any) => {
     const url = new URL(window.location.href);
     url.searchParams.set('page', newMode);
     window.history.pushState({}, '', url);
   };
 
-  const handleModeChange = (newMode: AppMode) => {
+  const handleModeChange = (newMode: any) => {
     setMode(newMode);
     updateUrl(newMode);
   };
@@ -60,6 +73,20 @@ export default function App() {
   const handleSaveList = (newList: WordItem[]) => {
     setWords(newList);
     handleModeChange(AppMode.PREVIEW);
+  };
+
+  const handleAddToReview = (word: WordItem) => {
+    setReviewWords(prev => {
+        // Prevent duplicates
+        if (prev.some(w => w.term === word.term)) return prev;
+        return [...prev, word];
+    });
+  };
+
+  const handleLoadReview = () => {
+      if (reviewWords.length === 0) return;
+      setWords(reviewWords);
+      handleModeChange(AppMode.PREVIEW);
   };
 
   const downloadList = () => {
@@ -104,13 +131,19 @@ export default function App() {
         );
 
       case AppMode.PRACTICE:
-        return <PracticeMode words={words} onBack={() => handleModeChange(AppMode.PREVIEW)} />;
+        return (
+            <PracticeMode 
+                words={words} 
+                onBack={() => handleModeChange(AppMode.PREVIEW)} 
+                onAddToReview={handleAddToReview}
+            />
+        );
 
       case AppMode.TEST:
         return (
           <TestMode 
             words={words} 
-            onComplete={(results) => {
+            onComplete={(results: TestResult[]) => {
                 setTestResults(results);
                 handleModeChange(AppMode.RESULT);
             }} 
@@ -196,6 +229,8 @@ export default function App() {
             onContinue={() => handleModeChange(AppMode.PREVIEW)}
             fileInputRef={fileInputRef}
             onFileUpload={uploadList}
+            reviewCount={reviewWords.length}
+            onLoadReview={handleLoadReview}
           />
         );
     }
@@ -219,3 +254,6 @@ export default function App() {
     </div>
   );
 }
+
+// Register
+(window as any).Dixi.components.App = App;

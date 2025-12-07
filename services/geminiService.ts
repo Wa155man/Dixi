@@ -1,11 +1,12 @@
 import { GoogleGenAI, Modality } from "@google/genai";
-import { decode, decodeAudioData } from "./audioUtils.ts";
+
+// Access global utils
+const { decode, decodeAudioData } = (window as any).Dixi.services.audioUtils;
 
 const API_KEY = process.env.API_KEY || '';
 
 const ai = new GoogleGenAI({ apiKey: API_KEY });
 
-// We cache audio to avoid hitting the API repeatedly for the same word in a session
 const audioCache: Record<string, AudioBuffer> = {};
 
 let audioContext: AudioContext | null = null;
@@ -20,23 +21,20 @@ const getAudioContext = () => {
   return audioContext;
 };
 
-export const playTextToSpeech = async (text: string): Promise<void> => {
+const playTextToSpeech = async (text: string): Promise<void> => {
   const ctx = getAudioContext();
   const cleanText = text?.trim();
 
   if (!cleanText) return;
   
-  // Browser TTS Fallback function
   const fallbackToBrowserTTS = () => {
     return new Promise<void>((resolve) => {
-        // Cancel any pending speech
         window.speechSynthesis.cancel();
         
         const utterance = new SpeechSynthesisUtterance(cleanText);
         utterance.rate = 0.9;
-        utterance.lang = 'en-US'; // Set default language
+        utterance.lang = 'en-US'; 
         
-        // Simple heuristic for Hebrew detection to switch voice/lang if needed
         if (/[\u0590-\u05FF]/.test(cleanText)) {
             utterance.lang = 'he-IL';
         }
@@ -54,7 +52,6 @@ export const playTextToSpeech = async (text: string): Promise<void> => {
     let buffer = audioCache[cleanText];
 
     if (!buffer) {
-      // Use gemini-2.5-flash as it is more robust for general multimodal output
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash", 
         contents: [{ parts: [{ text: `Say the following word or phrase clearly: ${cleanText}` }] }],
@@ -100,4 +97,9 @@ export const playTextToSpeech = async (text: string): Promise<void> => {
     console.warn("Gemini API error, falling back to browser TTS:", error);
     return fallbackToBrowserTTS();
   }
+};
+
+// Expose to global namespace
+(window as any).Dixi.services.geminiService = {
+  playTextToSpeech
 };

@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { WordItem } from '../types.ts';
-import { generateId } from '../utils.ts';
+
+// Get utils from global
+const { generateId } = (window as any).Dixi.utils;
 
 interface InputSectionProps {
   onSave: (list: WordItem[]) => void;
@@ -8,7 +10,7 @@ interface InputSectionProps {
   initialList?: WordItem[];
 }
 
-export const InputSection: React.FC<InputSectionProps> = ({ onSave, onCancel, initialList }) => {
+const InputSection: React.FC<InputSectionProps> = ({ onSave, onCancel, initialList }) => {
   const [activeTab, setActiveTab] = useState<'manual' | 'paste' | 'pairs'>('manual');
   
   // Manual Input State
@@ -164,3 +166,6 @@ export const InputSection: React.FC<InputSectionProps> = ({ onSave, onCancel, in
     </div>
   );
 };
+
+// Register
+(window as any).Dixi.components.InputSection = InputSection;

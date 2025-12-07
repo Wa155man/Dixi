@@ -1,6 +1,8 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './App.tsx';
+
+// Get App from global
+const { App } = (window as any).Dixi.components;
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

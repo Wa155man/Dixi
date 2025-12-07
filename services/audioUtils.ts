@@ -1,4 +1,4 @@
-export function decode(base64: string): Uint8Array {
+function decode(base64: string): Uint8Array {
   const binaryString = atob(base64);
   const len = binaryString.length;
   const bytes = new Uint8Array(len);
@@ -8,7 +8,7 @@ export function decode(base64: string): Uint8Array {
   return bytes;
 }
 
-export async function decodeAudioData(
+async function decodeAudioData(
   data: Uint8Array,
   ctx: AudioContext,
   sampleRate: number,
@@ -26,3 +26,9 @@ export async function decodeAudioData(
   }
   return buffer;
 }
+
+// Expose to global namespace
+(window as any).Dixi.services.audioUtils = {
+  decode,
+  decodeAudioData
+};
