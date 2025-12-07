@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { WordItem, TestResult } from './types.ts';
 
 // Destructure from Global Namespace
 const { InputSection, PracticeMode, TestMode, ResultScreen, LandingPage } = (window as any).Dixi.components;

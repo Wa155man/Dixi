@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { WordItem } from '../types.ts';
 
 // Get utils from global
 const { generateId } = (window as any).Dixi.utils;

@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { WordItem, TestResult } from '../types.ts';
 
 // Get global deps
 const { playTextToSpeech } = (window as any).Dixi.services.geminiService;

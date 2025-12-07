@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { WordItem } from '../types.ts';
 
 // Get services from global
 const { playTextToSpeech } = (window as any).Dixi.services.geminiService;

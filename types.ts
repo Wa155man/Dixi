@@ -1,4 +1,4 @@
-export interface WordItem {
+interface WordItem {
   id: string;
   term: string;
   definition?: string;
@@ -14,7 +14,7 @@ export interface WordItem {
   RESULT: 'RESULT',
 };
 
-export interface TestResult {
+interface TestResult {
   wordId: string;
   term: string;
   userAnswer: string;

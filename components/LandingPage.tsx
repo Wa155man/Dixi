@@ -1,5 +1,4 @@
 import React from 'react';
-import { WordItem } from '../types.ts';
 
 interface LandingPageProps {
   hasWords: boolean;
@@ -12,7 +11,7 @@ interface LandingPageProps {
   onFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }
 
-const LandingPage: React.FC<LandingPageProps> = ({
+const LandingPage = ({
   hasWords,
   onCreateList,
   onLoadList,
@@ -21,7 +20,7 @@ const LandingPage: React.FC<LandingPageProps> = ({
   onLoadReview,
   fileInputRef,
   onFileUpload
-}) => {
+}: LandingPageProps) => {
   return (
     <div className="text-center max-w-lg mx-auto w-full px-4 flex flex-col items-center justify-center h-full">
       <div className="mb-8 md:mb-12">
