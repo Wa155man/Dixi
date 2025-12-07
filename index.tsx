@@ -3,6 +3,66 @@ import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, Modality } from "@google/genai";
 
 // =================================================================================
+// ERROR BOUNDARY
+// =================================================================================
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  public state: ErrorBoundaryState = { hasError: false, error: null };
+
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error("Uncaught error:", error, errorInfo);
+  }
+
+  handleReset = () => {
+    localStorage.clear();
+    window.location.reload();
+  };
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-screen bg-red-50 p-4 text-center" dir="rtl">
+          <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full border border-red-100">
+             <div className="text-4xl mb-4">⚠️</div>
+             <h2 className="text-xl font-bold text-red-600 mb-2">משהו השתבש</h2>
+             <p className="text-gray-600 mb-6 text-sm">האפליקציה נתקלה בשגיאה לא צפויה.</p>
+             
+             <pre className="text-left text-xs bg-gray-100 p-4 rounded-lg mb-6 overflow-auto max-h-32 text-red-800 dir-ltr font-mono">
+               {this.state.error?.message}
+             </pre>
+
+             <button 
+               onClick={this.handleReset}
+               className="w-full bg-red-600 text-white py-3 rounded-xl font-medium hover:bg-red-700 transition-colors shadow-sm"
+             >
+               אפס נתונים וטען מחדש
+             </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+// =================================================================================
 // TYPES
 // =================================================================================
 interface WordItem {
@@ -82,17 +142,14 @@ async function decodeAudioData(
 }
 
 // --- Gemini Service ---
-const getApiKey = () => (window as any).process?.env?.API_KEY || '';
-
 let aiClient: GoogleGenAI | null = null;
 const getAiClient = () => {
     if (!aiClient) {
+        // API key must be obtained exclusively from process.env.API_KEY
         try {
-            const apiKey = getApiKey();
-            aiClient = new GoogleGenAI({ apiKey: apiKey || 'dummy' });
+            aiClient = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
         } catch (e) {
-            console.error("Failed to initialize GoogleGenAI", e);
-            return null;
+            console.error("Failed to init AI client", e);
         }
     }
     return aiClient;
@@ -324,7 +381,7 @@ const LandingPage = ({
       </div>
       
       <div className="mt-8 text-xs text-gray-400">
-        גרסה 1.4
+        גרסה 1.8
       </div>
     </div>
   );
@@ -340,23 +397,28 @@ interface InputSectionProps {
 const InputSection: React.FC<InputSectionProps> = ({ onSave, onCancel, initialList }) => {
   const [activeTab, setActiveTab] = useState<'manual' | 'paste' | 'pairs'>('manual');
   
-  const [manualInputs, setManualInputs] = useState<{term: string}[]>(
-     initialList && initialList.length > 0 
-     ? initialList.map(w => ({term: w.term})) 
-     : Array(10).fill({ term: '' })
-  );
+  const [manualInputs, setManualInputs] = useState<{term: string}[]>(() => {
+     if (initialList && initialList.length > 0) {
+        return initialList.map(w => ({term: w.term}));
+     }
+     // Create exactly 10 rows
+     return Array.from({ length: 10 }).map(() => ({ term: '' }));
+  });
 
   const [pasteContent, setPasteContent] = useState('');
   const [pairsContent, setPairsContent] = useState('');
 
   const handleManualChange = (index: number, value: string) => {
-    const newInputs = [...manualInputs];
-    newInputs[index] = { term: value };
-    setManualInputs(newInputs);
+    setManualInputs(prev => {
+        const newInputs = [...prev];
+        newInputs[index] = { term: value };
+        return newInputs;
+    });
   };
 
   const addMoreManual = () => {
-    setManualInputs([...manualInputs, ...Array(10).fill({ term: '' })]);
+    // Add 10 more rows
+    setManualInputs(prev => [...prev, ...Array.from({ length: 10 }).map(() => ({ term: '' }))]);
   };
 
   const processAndSave = () => {
@@ -406,7 +468,7 @@ const InputSection: React.FC<InputSectionProps> = ({ onSave, onCancel, initialLi
           className={`py-2 px-3 text-sm md:text-base font-medium transition-colors rounded-t-lg ${activeTab === 'manual' ? 'bg-indigo-50 text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
           onClick={() => setActiveTab('manual')}
         >
-          הזנה ידנית
+          הזנה ידנית (10 מילים)
         </button>
         <button
           className={`py-2 px-3 text-sm md:text-base font-medium transition-colors rounded-t-lg ${activeTab === 'paste' ? 'bg-indigo-50 text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
@@ -1001,6 +1063,8 @@ const App = () => {
                 }
             }
         };
+        // Reset file input so the same file can be selected again
+        e.target.value = '';
     }
   };
 
@@ -1084,9 +1148,15 @@ if (!rootElement) {
   throw new Error("Could not find root element to mount to");
 }
 
-const root = createRoot(rootElement);
-root.render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+try {
+  const root = createRoot(rootElement);
+  root.render(
+    <React.StrictMode>
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    </React.StrictMode>
+  );
+} catch (e) {
+  console.error("Failed to render app", e);
+}
