@@ -19,13 +19,6 @@
     <!-- Polyfill for process.env -->
     <script>
       window.process = { env: { API_KEY: '' } };
-      // Initialize Global Namespace for the app
-      window.Dixi = {
-        types: {},
-        utils: {},
-        services: {},
-        components: {}
-      };
     </script>
     
     <!-- Babel for on-the-fly compilation -->
@@ -79,21 +72,7 @@
   <body class="bg-slate-50 text-slate-900 min-h-screen h-[100dvh] overflow-hidden">
     <div id="root" class="h-full w-full"></div>
 
-    <!-- Load scripts sequentially. Order matters due to dependencies. -->
-    <script type="text/babel" data-type="module" data-presets="react,typescript" src="./types.ts"></script>
-    <script type="text/babel" data-type="module" data-presets="react,typescript" src="./utils.ts"></script>
-    <script type="text/babel" data-type="module" data-presets="react,typescript" src="./services/audioUtils.ts"></script>
-    <script type="text/babel" data-type="module" data-presets="react,typescript" src="./services/geminiService.ts"></script>
-    
-    <!-- Components -->
-    <script type="text/babel" data-type="module" data-presets="react,typescript" src="./components/LandingPage.tsx"></script>
-    <script type="text/babel" data-type="module" data-presets="react,typescript" src="./components/ResultScreen.tsx"></script>
-    <script type="text/babel" data-type="module" data-presets="react,typescript" src="./components/PracticeMode.tsx"></script>
-    <script type="text/babel" data-type="module" data-presets="react,typescript" src="./components/TestMode.tsx"></script>
-    <script type="text/babel" data-type="module" data-presets="react,typescript" src="./components/InputSection.tsx"></script>
-    
-    <!-- Main App and Entry -->
-    <script type="text/babel" data-type="module" data-presets="react,typescript" src="./App.tsx"></script>
+    <!-- Load the entire application from a single, consolidated script -->
     <script type="text/babel" data-type="module" data-presets="react,typescript" src="./index.tsx"></script>
   </body>
 </html>
