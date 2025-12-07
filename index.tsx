@@ -82,8 +82,19 @@ async function decodeAudioData(
 }
 
 // --- Gemini Service ---
-const API_KEY = process.env.API_KEY || '';
-const ai = new GoogleGenAI({ apiKey: API_KEY });
+// Safer access to process.env
+const getApiKey = () => (window as any).process?.env?.API_KEY || '';
+
+// Lazy initialization of AI client
+let aiClient: GoogleGenAI | null = null;
+const getAiClient = () => {
+    if (!aiClient) {
+        const apiKey = getApiKey();
+        aiClient = new GoogleGenAI({ apiKey });
+    }
+    return aiClient;
+};
+
 const audioCache: Record<string, AudioBuffer> = {};
 let audioContext: AudioContext | null = null;
 
@@ -128,6 +139,9 @@ const playTextToSpeech = async (text: string): Promise<void> => {
     let buffer = audioCache[cleanText];
 
     if (!buffer) {
+      // Lazy init here
+      const ai = getAiClient();
+      
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash-preview-tts", 
         contents: [{ parts: [{ text: `Say the following word or phrase clearly: ${cleanText}` }] }],
