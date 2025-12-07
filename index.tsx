@@ -1,12 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
-import { GoogleGenAI, Modality } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 
 // =================================================================================
 // ERROR BOUNDARY
 // =================================================================================
 interface ErrorBoundaryProps {
-  children: React.ReactNode;
+  children?: React.ReactNode;
 }
 
 interface ErrorBoundaryState {
@@ -96,8 +96,9 @@ const generateId = (): string => {
 
 const normalizeString = (str: string): string => {
   if (!str) return '';
+  // Safe regex for normalization
   return str
-    .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?"']/g, "")
+    .replace(/[.,/#!$%^&*;:{}=\-_`~()?"']/g, "")
     .replace(/\s{2,}/g, " ")
     .trim()
     .toLowerCase();
@@ -147,7 +148,8 @@ const getAiClient = () => {
     if (!aiClient) {
         // API key must be obtained exclusively from process.env.API_KEY
         try {
-            aiClient = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+            const apiKey = process.env.API_KEY || '';
+            aiClient = new GoogleGenAI({ apiKey });
         } catch (e) {
             console.error("Failed to init AI client", e);
         }
@@ -212,7 +214,8 @@ const playTextToSpeech = async (text: string): Promise<void> => {
         model: "gemini-2.5-flash-preview-tts", 
         contents: [{ parts: [{ text: `Say the following word or phrase clearly: ${cleanText}` }] }],
         config: {
-          responseModalities: [Modality.AUDIO], 
+          // Use string literal 'AUDIO' to avoid import issues
+          responseModalities: ['AUDIO' as any], 
           speechConfig: {
             voiceConfig: {
               prebuiltVoiceConfig: { voiceName: 'Kore' },
@@ -381,7 +384,7 @@ const LandingPage = ({
       </div>
       
       <div className="mt-8 text-xs text-gray-400">
-        גרסה 1.8
+        גרסה 2.0
       </div>
     </div>
   );
