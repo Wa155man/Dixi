@@ -578,21 +578,28 @@ const TestMode: React.FC<TestModeProps> = ({ words, onComplete, onCancel }) => {
   const [userInput, setUserInput] = useState('');
   const [results, setResults] = useState<TestResult[]>([]);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [testStarted, setTestStarted] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const currentWord = words[currentIndex];
 
   useEffect(() => {
     setUserInput('');
-    const timer = setTimeout(() => {
+    if (testStarted) {
+      const timer = setTimeout(() => {
         playAudio();
-    }, 500);
-
-    return () => clearTimeout(timer);
-  }, [currentIndex]);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [currentIndex, testStarted]);
 
   const playAudio = async () => {
     if (isPlaying) return;
+
+    if (!testStarted) {
+      setTestStarted(true);
+    }
+
     setIsPlaying(true);
     const textToSpeak = currentWord.definition ? currentWord.definition : currentWord.term;
     await playTextToSpeech(textToSpeak);
@@ -654,7 +661,9 @@ const TestMode: React.FC<TestModeProps> = ({ words, onComplete, onCancel }) => {
         </button>
 
         <p className="text-gray-500 text-sm mb-6 text-center">
-            {currentWord.definition 
+          {!testStarted
+            ? "לחץ על הרמקול כדי להתחיל."
+            : currentWord.definition 
                 ? "הקשב להגדרה והקלד את המילה." 
                 : "הקשב למילה והקלד אותה."}
         </p>
