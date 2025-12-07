@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { WordItem } from '../types';
-import { generateId } from '../utils';
+import { WordItem } from '../types.ts';
+import { generateId } from '../utils.ts';
 
 interface InputSectionProps {
   onSave: (list: WordItem[]) => void;

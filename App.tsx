@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { WordItem, AppMode, TestResult } from './types';
-import { InputSection } from './components/InputSection';
-import { PracticeMode } from './components/PracticeMode';
-import { TestMode } from './components/TestMode';
-import { ResultScreen } from './components/ResultScreen';
-import { LandingPage } from './components/LandingPage';
+import { WordItem, AppMode, TestResult } from './types.ts';
+import { InputSection } from './components/InputSection.tsx';
+import { PracticeMode } from './components/PracticeMode.tsx';
+import { TestMode } from './components/TestMode.tsx';
+import { ResultScreen } from './components/ResultScreen.tsx';
+import { LandingPage } from './components/LandingPage.tsx';
 
 export default function App() {
   const [words, setWords] = useState<WordItem[]>([]);

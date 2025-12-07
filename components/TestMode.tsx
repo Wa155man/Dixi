@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { WordItem, TestResult } from '../types';
-import { playTextToSpeech } from '../services/geminiService';
-import { checkAnswer } from '../utils';
+import { WordItem, TestResult } from '../types.ts';
+import { playTextToSpeech } from '../services/geminiService.ts';
+import { checkAnswer } from '../utils.ts';
 
 interface TestModeProps {
   words: WordItem[];

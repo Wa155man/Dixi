@@ -1,5 +1,5 @@
 import { GoogleGenAI, Modality } from "@google/genai";
-import { decode, decodeAudioData } from "./audioUtils";
+import { decode, decodeAudioData } from "./audioUtils.ts";
 
 const API_KEY = process.env.API_KEY || '';
 
@@ -55,7 +55,6 @@ export const playTextToSpeech = async (text: string): Promise<void> => {
 
     if (!buffer) {
       // Use gemini-2.5-flash as it is more robust for general multimodal output
-      // and less prone to "OTHER" finish reasons on simple prompts compared to the preview TTS model.
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash", 
         contents: [{ parts: [{ text: `Say the following word or phrase clearly: ${cleanText}` }] }],
@@ -71,7 +70,6 @@ export const playTextToSpeech = async (text: string): Promise<void> => {
 
       const part = response.candidates?.[0]?.content?.parts?.[0];
       
-      // Check if the model returned text (e.g. safety refusal or fallback) instead of audio
       if (part?.text) {
           console.warn("Gemini returned text instead of audio. Using fallback.");
           return fallbackToBrowserTTS();

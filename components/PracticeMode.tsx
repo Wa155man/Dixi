@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { WordItem } from '../types';
-import { playTextToSpeech } from '../services/geminiService';
+import { WordItem } from '../types.ts';
+import { playTextToSpeech } from '../services/geminiService.ts';
 
 interface PracticeModeProps {
   words: WordItem[];
@@ -8,20 +8,33 @@ interface PracticeModeProps {
 }
 
 export const PracticeMode: React.FC<PracticeModeProps> = ({ words, onBack }) => {
+  const [queue, setQueue] = useState<WordItem[]>(words);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
 
-  const currentWord = words[currentIndex];
+  const currentWord = queue[currentIndex];
 
   const handleNext = () => {
     setIsFlipped(false);
-    setCurrentIndex((prev) => (prev + 1) % words.length);
+    setCurrentIndex((prev) => (prev + 1) % queue.length);
   };
 
   const handlePrev = () => {
     setIsFlipped(false);
-    setCurrentIndex((prev) => (prev - 1 + words.length) % words.length);
+    setCurrentIndex((prev) => (prev - 1 + queue.length) % queue.length);
+  };
+
+  const handleForgot = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsFlipped(false);
+    
+    // Add current word to the end of the queue for review
+    const newQueue = [...queue, currentWord];
+    setQueue(newQueue);
+    
+    // Move to next word immediately
+    setCurrentIndex((prev) => (prev + 1) % newQueue.length);
   };
 
   const handleSpeak = async (e: React.MouseEvent) => {
@@ -44,7 +57,7 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({ words, onBack }) => 
           &rarr; חזרה
         </button>
         <span className="text-gray-400 font-mono" dir="ltr">
-          {currentIndex + 1} / {words.length}
+          {currentIndex + 1} / {queue.length}
         </span>
       </div>
 
@@ -96,16 +109,25 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({ words, onBack }) => 
         </div>
       </div>
 
-      <div className="flex gap-4 mt-8 w-full justify-center">
+      <div className="flex flex-col sm:flex-row gap-3 mt-8 w-full justify-center items-center">
         <button 
           onClick={handlePrev}
-          className="bg-white border border-gray-200 text-gray-700 px-6 py-3 rounded-xl hover:bg-gray-50 font-medium transition-all shadow-sm w-32"
+          className="order-1 sm:order-none bg-white border border-gray-200 text-gray-700 px-6 py-3 rounded-xl hover:bg-gray-50 font-medium transition-all shadow-sm w-full sm:w-32"
         >
           הקודם
         </button>
+        
+        <button 
+          onClick={handleForgot}
+          className="order-3 sm:order-none bg-orange-100 text-orange-700 border border-orange-200 px-6 py-3 rounded-xl hover:bg-orange-200 font-medium transition-all shadow-sm w-full sm:w-auto flex items-center justify-center gap-2"
+        >
+          <span className="text-xl">↺</span>
+          לתרגל שוב
+        </button>
+
         <button 
           onClick={handleNext}
-          className="bg-indigo-600 text-white px-6 py-3 rounded-xl hover:bg-indigo-700 font-medium transition-all shadow-md w-32"
+          className="order-2 sm:order-none bg-indigo-600 text-white px-6 py-3 rounded-xl hover:bg-indigo-700 font-medium transition-all shadow-md w-full sm:w-32"
         >
           הבא
         </button>
