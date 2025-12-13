@@ -1,72 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
-import { GoogleGenAI, Modality } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 
 // =================================================================================
-// ERROR BOUNDARY
+// CONFIG & TYPES
 // =================================================================================
-interface ErrorBoundaryProps {
-  children?: React.ReactNode;
-}
-
-interface ErrorBoundaryState {
-  hasError: boolean;
-  error: Error | null;
-}
-
-class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  public state: ErrorBoundaryState = { hasError: false, error: null };
-
-  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error("Uncaught error:", error, errorInfo);
-  }
-
-  handleReset = () => {
-    localStorage.clear();
-    window.location.reload();
-  };
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="flex flex-col items-center justify-center min-h-screen bg-red-50 p-4 text-center" dir="rtl">
-          <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full border border-red-100">
-             <div className="text-4xl mb-4">⚠️</div>
-             <h2 className="text-xl font-bold text-red-600 mb-2">משהו השתבש</h2>
-             <p className="text-gray-600 mb-6 text-sm">האפליקציה נתקלה בשגיאה לא צפויה.</p>
-             
-             <pre className="text-left text-xs bg-gray-100 p-4 rounded-lg mb-6 overflow-auto max-h-32 text-red-800 dir-ltr font-mono">
-               {this.state.error?.message}
-             </pre>
-
-             <button 
-               onClick={this.handleReset}
-               className="w-full bg-red-600 text-white py-3 rounded-xl font-medium hover:bg-red-700 transition-colors shadow-sm"
-             >
-               אפס נתונים וטען מחדש
-             </button>
-          </div>
-        </div>
-      );
-    }
-
-    return (this as any).props.children;
-  }
-}
-
-// =================================================================================
-// TYPES
-// =================================================================================
-interface WordItem {
-  id: string;
-  term: string;
-  definition?: string;
-}
-
 const AppMode = {
   MENU: 'MENU',
   CREATE_LIST: 'CREATE_LIST',
@@ -75,6 +13,12 @@ const AppMode = {
   TEST: 'TEST',
   RESULT: 'RESULT',
 };
+
+interface WordItem {
+  id: string;
+  term: string;
+  definition?: string;
+}
 
 interface TestResult {
   wordId: string;
@@ -86,1132 +30,510 @@ interface TestResult {
 // =================================================================================
 // UTILS
 // =================================================================================
-const generateId = (): string => {
-  return Math.random().toString(36).substring(2, 9);
-};
+const generateId = () => Math.random().toString(36).substring(2, 9);
 
-const normalizeString = (str: string): string => {
+const normalizeString = (str: string) => {
   if (!str) return '';
-  return str
-    .replace(/[.,/#!$%^&*;:{}=\-_`~()?"']/g, "")
-    .replace(/\s{2,}/g, " ")
-    .trim()
-    .toLowerCase();
+  return str.replace(/[.,/#!$%^&*;:{}=\-_`~()?"']/g, "").replace(/\s{2,}/g, " ").trim().toLowerCase();
 };
 
-const checkAnswer = (correct: string, actual: string): boolean => {
-  return normalizeString(correct) === normalizeString(actual);
-};
+const checkAnswer = (correct: string, actual: string) => normalizeString(correct) === normalizeString(actual);
+
+// Audio Utils
+function decode(base64: string) {
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+  return bytes;
+}
+
+async function decodeAudioData(data: Uint8Array, ctx: AudioContext) {
+  const dataInt16 = new Int16Array(data.buffer, data.byteOffset, data.byteLength / 2);
+  const buffer = ctx.createBuffer(1, dataInt16.length, 24000);
+  const channelData = buffer.getChannelData(0);
+  for (let i = 0; i < channelData.length; i++) channelData[i] = dataInt16[i] / 32768.0;
+  return buffer;
+}
 
 // =================================================================================
 // SERVICES
 // =================================================================================
-
-// --- Audio Utils ---
-function decode(base64: string): Uint8Array {
-  const binaryString = atob(base64);
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes;
-}
-
-async function decodeAudioData(
-  data: Uint8Array,
-  ctx: AudioContext,
-  sampleRate: number,
-  numChannels: number,
-): Promise<AudioBuffer> {
-  const dataInt16 = new Int16Array(data.buffer);
-  const frameCount = dataInt16.length / numChannels;
-  const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
-
-  for (let channel = 0; channel < numChannels; channel++) {
-    const channelData = buffer.getChannelData(channel);
-    for (let i = 0; i < frameCount; i++) {
-      channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
-    }
-  }
-  return buffer;
-}
-
-// --- Gemini Service ---
-let aiClient: GoogleGenAI | null = null;
-const getAiClient = () => {
-    if (!aiClient) {
-        try {
-            // Using process.env.API_KEY as strictly required by guidelines
-            const apiKey = process.env.API_KEY || '';
-            if (apiKey) {
-                aiClient = new GoogleGenAI({ apiKey });
-            } else {
-                console.warn("API Key is missing.");
-            }
-        } catch (e) {
-            console.error("Failed to init AI client", e);
-        }
-    }
-    return aiClient;
-};
-
 const audioCache: Record<string, AudioBuffer> = {};
 let audioContext: AudioContext | null = null;
 
 const getAudioContext = () => {
-  if (!audioContext) {
-    audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-  }
+  if (!audioContext) audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
   return audioContext;
 };
 
-const playTextToSpeech = async (text: string): Promise<void> => {
+const playTextToSpeech = async (text: string): Promise<{ success: boolean; error?: string }> => {
   const ctx = getAudioContext();
-  
-  // Ensure context is running
   if (ctx.state === 'suspended') {
-    try {
+      try {
         await ctx.resume();
-    } catch (e) {
-        console.warn("Could not resume audio context", e);
-    }
+      } catch (e) {
+          return { success: false, error: "Cannot resume audio context. Please interact with the page." };
+      }
   }
 
   const cleanText = text?.trim();
-  if (!cleanText) return;
-  
-  const fallbackToBrowserTTS = () => {
-    return new Promise<void>((resolve) => {
-        window.speechSynthesis.cancel();
-        
-        const utterance = new SpeechSynthesisUtterance(cleanText);
-        utterance.rate = 0.9;
-        utterance.lang = 'en-US'; 
-        
-        // Simple Hebrew detection
-        if (/[\u0590-\u05FF]/.test(cleanText)) {
-            utterance.lang = 'he-IL';
+  if (!cleanText) return { success: false, error: "No text to speak." };
+
+  // Fallback function: Uses Browser's Native TTS
+  const fallback = (): Promise<{ success: boolean; error?: string }> => {
+    return new Promise((resolve) => {
+        if (!window.speechSynthesis) {
+            resolve({ success: false, error: "Browser does not support text-to-speech." });
+            return;
         }
 
-        utterance.onend = () => resolve();
-        utterance.onerror = (e) => {
-            console.warn("Browser TTS error:", e);
-            resolve();
-        };
-        window.speechSynthesis.speak(utterance);
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(cleanText);
+        u.rate = 0.9;
+        
+        // Detect language roughly
+        const isHebrew = /[\u0590-\u05FF]/.test(cleanText);
+        u.lang = isHebrew ? 'he-IL' : 'en-US';
+
+        // Some browsers need a short delay or they cancel immediately
+        setTimeout(() => {
+            u.onend = () => resolve({ success: true });
+            u.onerror = (e) => resolve({ success: false, error: `Browser TTS error: ${e.error}` });
+            
+            try {
+                window.speechSynthesis.speak(u);
+            } catch (err) {
+                resolve({ success: false, error: "Failed to invoke browser TTS." });
+            }
+        }, 10);
     });
   };
 
   try {
-    let buffer = audioCache[cleanText];
-
-    if (!buffer) {
-      const ai = getAiClient();
-      if (!ai) return fallbackToBrowserTTS();
-      
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash-preview-tts", 
-        contents: [{ parts: [{ text: `Say the following word or phrase clearly: ${cleanText}` }] }],
-        config: {
-          responseModalities: [Modality.AUDIO], 
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: 'Kore' },
-            },
-          },
-        },
-      });
-
-      const part = response.candidates?.[0]?.content?.parts?.[0];
-      if (part?.text) {
-          // Model returned text instead of audio
-          return fallbackToBrowserTTS();
-      }
-
-      const base64Audio = part?.inlineData?.data;
-      if (!base64Audio) {
-        return fallbackToBrowserTTS();
-      }
-
-      const audioBytes = decode(base64Audio);
-      buffer = await decodeAudioData(audioBytes, ctx, 24000, 1);
-      audioCache[cleanText] = buffer;
+    // 1. Check if we already have it cached (GenAI audio only)
+    if (audioCache[cleanText]) {
+        const source = ctx.createBufferSource();
+        source.buffer = audioCache[cleanText];
+        source.connect(ctx.destination);
+        source.start();
+        return new Promise((resolve) => {
+            source.onended = () => resolve({ success: true });
+        });
     }
 
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    source.connect(ctx.destination);
-    source.start();
-
-    return new Promise((resolve) => {
-      source.onended = () => resolve();
+    // 2. Try GenAI
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+        // No API Key, go straight to fallback without logging an error as it's expected behavior
+        return fallback();
+    }
+      
+    const ai = new GoogleGenAI({ apiKey });
+    const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-preview-tts", 
+        contents: [{ parts: [{ text: `Say: ${cleanText}` }] }],
+        config: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } } },
     });
 
-  } catch (error) {
-    console.warn("Gemini API error, falling back to browser TTS:", error);
-    return fallbackToBrowserTTS();
+    const base64 = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    if (!base64) throw new Error("No audio data returned from API");
+
+    const decodedBuffer = await decodeAudioData(decode(base64), ctx);
+    audioCache[cleanText] = decodedBuffer;
+
+    const source = ctx.createBufferSource();
+    source.buffer = decodedBuffer;
+    source.connect(ctx.destination);
+    source.start();
+    return new Promise((resolve) => {
+        source.onended = () => resolve({ success: true });
+    });
+
+  } catch (e) {
+    console.warn("AI TTS failed, switching to fallback:", e);
+    // 3. GenAI Failed, Try Fallback
+    return fallback();
   }
 };
-
 
 // =================================================================================
 // COMPONENTS
 // =================================================================================
 
-// --- LandingPage Component ---
-interface LandingPageProps {
-  hasWords: boolean;
-  onCreateList: () => void;
-  onLoadList: () => void;
-  onContinue: () => void;
-  reviewCount: number;
-  onLoadReview: () => void;
-  fileInputRef: React.RefObject<HTMLInputElement>;
-  onFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
-}
-
-const LandingPage = ({
-  hasWords,
-  onCreateList,
-  onLoadList,
-  onContinue,
-  reviewCount,
-  onLoadReview,
-  fileInputRef,
-  onFileUpload
-}: LandingPageProps) => {
-  
-  // Try to resume audio context on any user interaction with the menu
-  const handleInteraction = () => {
-    try {
-        const ctx = getAudioContext();
-        if (ctx.state === 'suspended') {
-            ctx.resume();
-        }
-    } catch (e) {
-        console.warn("Audio resume failed", e);
-    }
-  };
-
-  return (
-    <div 
-        className="text-center max-w-lg mx-auto w-full px-4 flex flex-col items-center justify-center h-full animate-fade-in"
-        onClick={handleInteraction}
-        onTouchStart={handleInteraction}
-    >
-      <div className="mb-6 md:mb-8">
-        <h1 className="text-5xl md:text-7xl font-extrabold text-transparent bg-clip-text bg-gradient-to-l from-indigo-600 to-purple-600 mb-4 tracking-tight">Dixi</h1>
-        <p className="text-gray-400">עוזר הכתבה</p>
-      </div>
-      
-      <div className="space-y-4 w-full">
-          <button 
-              onClick={(e) => { handleInteraction(); onCreateList(); }}
-              className="w-full bg-white p-6 rounded-2xl shadow-sm border-2 border-transparent hover:border-indigo-500 hover:shadow-md transition-all group flex items-center justify-between"
-          >
-              <span className="text-lg md:text-xl font-bold text-gray-800 group-hover:text-indigo-600">צור רשימה חדשה</span>
-              <span className="text-3xl">📝</span>
-          </button>
-
-          <div className="relative w-full">
-              <input 
-                  type="file" 
-                  ref={fileInputRef}
-                  accept=".json"
-                  className="hidden" 
-                  onChange={onFileUpload}
-              />
-              <button 
-                  onClick={(e) => { handleInteraction(); onLoadList(); }}
-                  className="w-full bg-white p-6 rounded-2xl shadow-sm border-2 border-transparent hover:border-indigo-500 hover:shadow-md transition-all group flex items-center justify-between"
-              >
-                  <span className="text-lg md:text-xl font-bold text-gray-800 group-hover:text-indigo-600">טען רשימה שמורה</span>
-                  <span className="text-3xl">📂</span>
-              </button>
-          </div>
-          
-          {reviewCount > 0 && (
-             <button 
-                 onClick={(e) => { handleInteraction(); onLoadReview(); }}
-                 className="w-full bg-amber-50 p-6 rounded-2xl shadow-sm border-2 border-amber-200 hover:border-amber-400 hover:shadow-md transition-all group flex items-center justify-between"
-             >
-                 <span className="text-lg md:text-xl font-bold text-gray-800 group-hover:text-amber-700">תרגל מילים לסקירה ({reviewCount})</span>
-                 <span className="text-3xl">⭐</span>
-             </button>
-          )}
-
-          {hasWords && (
-               <button 
-                  onClick={(e) => { handleInteraction(); onContinue(); }}
-                  className="w-full bg-indigo-600 p-6 rounded-2xl shadow-lg hover:bg-indigo-700 transition-all text-white flex items-center justify-between ring-4 ring-indigo-100"
-              >
-                  <span className="text-lg md:text-xl font-bold">המשך עם הרשימה</span>
-                  <span className="text-3xl">👉</span>
-              </button>
-          )}
-      </div>
-      
-      <div className="mt-8 text-xs text-gray-400">
-        גרסה 2.8
-      </div>
+const LandingPage = ({ hasWords, onCreate, onLoad, onReview, reviewCount, fileInputRef, onFile }: any) => (
+  <div className="text-center max-w-lg mx-auto px-4 flex flex-col items-center justify-center h-full animate-fade-in">
+    <div className="mb-8">
+      <h1 className="text-6xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600 mb-2">Dixi</h1>
+      <p className="text-gray-500">עוזר הכתבה חכם</p>
     </div>
-  );
-};
-
-// --- InputSection Component ---
-interface InputSectionProps {
-  onSave: (list: WordItem[]) => void;
-  onCancel: () => void;
-  initialList?: WordItem[];
-}
-
-const InputSection: React.FC<InputSectionProps> = ({ onSave, onCancel, initialList }) => {
-  const [activeTab, setActiveTab] = useState<'manual' | 'paste' | 'pairs'>('manual');
-  
-  const [manualInputs, setManualInputs] = useState<{term: string, definition: string}[]>(() => {
-     let inputs: {term: string, definition: string}[] = [];
-     if (initialList && initialList.length > 0) {
-        inputs = initialList.map(w => ({term: w.term, definition: w.definition || ''}));
-     }
-     
-     // Pad to ensure at least 10 items for the standard "10 words" feel
-     if (inputs.length < 10) {
-        const padding = Array.from({ length: 10 - inputs.length }).map(() => ({ term: '', definition: '' }));
-        inputs = [...inputs, ...padding];
-     }
-     
-     return inputs;
-  });
-
-  const [pasteContent, setPasteContent] = useState('');
-  const [pairsContent, setPairsContent] = useState('');
-  const [showDefinitions, setShowDefinitions] = useState(false);
-
-  const handleManualChange = (index: number, field: 'term' | 'definition', value: string) => {
-    setManualInputs(prev => {
-        const newInputs = [...prev];
-        if (!newInputs[index]) newInputs[index] = { term: '', definition: '' };
-        newInputs[index] = { ...newInputs[index], [field]: value };
-        return newInputs;
-    });
-  };
-
-  const addMoreManual = () => {
-    setManualInputs(prev => [...prev, ...Array.from({ length: 5 }).map(() => ({ term: '', definition: '' }))]);
-  };
-  
-  const clearManual = () => {
-      if(confirm('האם לנקות את כל השורות?')) {
-          setManualInputs(Array.from({ length: 10 }).map(() => ({ term: '', definition: '' })));
-      }
-  }
-
-  const processAndSave = () => {
-    let finalList: WordItem[] = [];
-
-    if (activeTab === 'manual') {
-      finalList = manualInputs
-        .filter(item => item.term.trim() !== '')
-        .map(item => ({ 
-            id: generateId(), 
-            term: item.term.trim(),
-            definition: item.definition?.trim() || undefined
-        }));
-    } else if (activeTab === 'paste') {
-      finalList = pasteContent
-        .split('\n')
-        .map(line => line.trim())
-        .filter(line => line !== '')
-        .map(line => ({ id: generateId(), term: line }));
-    } else if (activeTab === 'pairs') {
-      finalList = pairsContent
-        .split('\n')
-        .map((line): WordItem | null => {
-          const parts = line.split('-');
-          if (parts.length >= 2) {
-            return {
-              id: generateId(),
-              term: parts[0].trim(),
-              definition: parts.slice(1).join('-').trim()
-            };
-          }
-          return null;
-        })
-        .filter((item): item is WordItem => item !== null);
-    }
-
-    if (finalList.length === 0) {
-      alert("אנא הזן לפחות מילה אחת.");
-      return;
-    }
-
-    onSave(finalList);
-  };
-
-  return (
-    <div className="bg-white p-4 md:p-6 rounded-xl shadow-lg w-full max-w-4xl mx-auto flex flex-col h-full max-h-[85dvh]">
-      <h2 className="text-xl md:text-2xl font-bold mb-4 text-indigo-700 shrink-0">יצירת רשימה</h2>
-      
-      <div className="flex flex-wrap border-b border-gray-200 mb-4 gap-1 shrink-0">
-        <button
-          className={`py-2 px-3 text-sm md:text-base font-medium transition-colors rounded-t-lg ${activeTab === 'manual' ? 'bg-indigo-50 text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
-          onClick={() => setActiveTab('manual')}
-        >
-          הזנה ידנית (10 מילים)
+    <div className="w-full space-y-4">
+        <button onClick={onCreate} className="w-full bg-white p-5 rounded-xl shadow-sm border hover:border-indigo-500 flex justify-between items-center group transition-all">
+            <span className="font-bold text-gray-800 group-hover:text-indigo-600">צור רשימה חדשה</span><span className="text-2xl">📝</span>
         </button>
-        <button
-          className={`py-2 px-3 text-sm md:text-base font-medium transition-colors rounded-t-lg ${activeTab === 'paste' ? 'bg-indigo-50 text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
-          onClick={() => setActiveTab('paste')}
-        >
-          הדבק רשימה
+        <button onClick={() => fileInputRef.current?.click()} className="w-full bg-white p-5 rounded-xl shadow-sm border hover:border-indigo-500 flex justify-between items-center group transition-all">
+            <span className="font-bold text-gray-800 group-hover:text-indigo-600">טען קובץ</span><span className="text-2xl">📂</span>
         </button>
-        <button
-          className={`py-2 px-3 text-sm md:text-base font-medium transition-colors rounded-t-lg ${activeTab === 'pairs' ? 'bg-indigo-50 text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
-          onClick={() => setActiveTab('pairs')}
-        >
-          זוגות
-        </button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto pl-2 custom-scrollbar">
-        {activeTab === 'manual' && (
-          <div className="space-y-3 pb-4">
-             {/* Definitions Toggle */}
-             <div className="mb-4 flex items-center justify-between bg-indigo-50 p-3 rounded-lg border border-indigo-100">
-                <span className="text-sm text-indigo-800 font-medium">הוסף הגדרות או תרגום למילים</span>
-                <label className="flex items-center cursor-pointer relative">
-                    <input 
-                        type="checkbox" 
-                        checked={showDefinitions} 
-                        onChange={(e) => setShowDefinitions(e.target.checked)} 
-                        className="sr-only peer" 
-                    />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
-                </label>
-             </div>
-
-            <div className={`grid ${showDefinitions ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'} gap-3`}>
-              {manualInputs.map((input, idx) => (
-                <div key={idx} className={`flex ${showDefinitions ? 'flex-col sm:flex-row' : 'flex-row'} items-center gap-2 bg-gray-50 p-2 rounded-lg border border-gray-200`}>
-                  <span className="text-gray-400 font-mono text-sm w-6 text-center shrink-0">{idx + 1}.</span>
-                  <input
-                    type="text"
-                    value={input.term}
-                    onChange={(e) => handleManualChange(idx, 'term', e.target.value)}
-                    className="flex-1 min-w-0 bg-white border border-gray-300 rounded-md px-3 py-2 text-base focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                    placeholder={showDefinitions ? "מילה" : `מילה ${idx + 1}`}
-                  />
-                  {showDefinitions && (
-                      <input
-                        type="text"
-                        value={input.definition}
-                        onChange={(e) => handleManualChange(idx, 'definition', e.target.value)}
-                        className="flex-1 min-w-0 bg-white border border-gray-300 rounded-md px-3 py-2 text-base focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                        placeholder="הגדרה / תרגום"
-                      />
-                  )}
-                </div>
-              ))}
-            </div>
-            <div className="flex gap-2 mt-4">
-                <button
-                onClick={addMoreManual}
-                className="flex-1 py-3 sm:py-2 text-sm text-indigo-600 hover:text-indigo-800 font-medium flex items-center justify-center gap-1 border border-indigo-100 rounded-lg bg-indigo-50"
-                >
-                + הוסף שורות
-                </button>
-                <button
-                onClick={clearManual}
-                className="px-4 py-3 sm:py-2 text-sm text-red-600 hover:text-red-800 font-medium flex items-center justify-center gap-1 border border-red-100 rounded-lg bg-red-50"
-                >
-                נקה
-                </button>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'paste' && (
-          <div className="h-full pb-4">
-            <textarea
-              className="w-full h-full p-4 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono text-base"
-              placeholder="הדבק את רשימת המילים כאן, כל מילה בשורה חדשה..."
-              value={pasteContent}
-              onChange={(e) => setPasteContent(e.target.value)}
-            />
-          </div>
-        )}
-
-        {activeTab === 'pairs' && (
-          <div className="h-full pb-4">
-            <div className="mb-2 text-sm text-gray-500">פורמט: מילה - הגדרה (אחת בכל שורה)</div>
-            <textarea
-              className="w-full h-full p-4 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono text-base"
-              placeholder={'תפוח - פרי עגול ואדום\nפיל - חיה גדולה עם חדק'}
-              value={pairsContent}
-              onChange={(e) => setPairsContent(e.target.value)}
-            />
-          </div>
-        )}
-      </div>
-
-      <div className="mt-4 shrink-0 flex justify-end gap-3 pt-4 border-t border-gray-100">
-        <button
-          onClick={onCancel}
-          className="px-6 py-3 md:py-2 rounded-lg text-gray-600 hover:bg-gray-100 font-medium transition-colors text-sm md:text-base"
-        >
-          ביטול
-        </button>
-        <button
-          onClick={processAndSave}
-          className="px-6 py-3 md:py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition-colors shadow-sm text-sm md:text-base"
-        >
-          צור רשימה
-        </button>
-      </div>
-    </div>
-  );
-};
-
-// --- PracticeMode Component ---
-interface PracticeModeProps {
-  words: WordItem[];
-  onBack: () => void;
-  onAddToReview: (word: WordItem) => void;
-}
-
-const PracticeMode: React.FC<PracticeModeProps> = ({ words, onBack, onAddToReview }) => {
-  const [queue, setQueue] = useState<WordItem[]>(words);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [isFlipped, setIsFlipped] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
-
-  // Safety check
-  if (!queue || queue.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full">
-         <p className="text-gray-500 mb-4">אין מילים לתרגול.</p>
-         <button onClick={onBack} className="text-indigo-600">חזרה</button>
-      </div>
-    );
-  }
-
-  const currentWord = queue[currentIndex];
-  // Guard against index out of bounds if queue changes unexpectedly
-  if (!currentWord) return null;
-
-  const handleNext = () => {
-    setIsFlipped(false);
-    setCurrentIndex((prev) => (prev + 1) % queue.length);
-  };
-
-  const handlePrev = () => {
-    setIsFlipped(false);
-    setCurrentIndex((prev) => (prev - 1 + queue.length) % queue.length);
-  };
-
-  const handleForgot = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsFlipped(false);
-    
-    const newQueue = [...queue, currentWord];
-    setQueue(newQueue);
-    
-    setCurrentIndex((prev) => (prev + 1) % newQueue.length);
-  };
-
-  const handleSaveForReview = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onAddToReview(currentWord);
-    handleNext();
-  };
-
-  const handleSpeak = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (isPlaying) return;
-    
-    setIsPlaying(true);
-    const textToSpeak = (isFlipped && currentWord.definition) ? currentWord.definition : currentWord.term;
-    await playTextToSpeech(textToSpeak);
-    setIsPlaying(false);
-  };
-
-  const hasDefinition = !!currentWord.definition;
-
-  return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] w-full max-w-2xl mx-auto p-4">
-       <div className="flex justify-between w-full mb-6 items-center">
-        <button onClick={onBack} className="text-gray-500 hover:text-gray-800 font-medium flex items-center gap-1">
-          &rarr; חזרה
-        </button>
-        <span className="text-gray-400 font-mono" dir="ltr">
-          {currentIndex + 1} / {queue.length}
-        </span>
-      </div>
-
-      <div 
-        className="relative w-full aspect-[3/2] cursor-pointer perspective-1000 group"
-        onClick={() => hasDefinition && setIsFlipped(!isFlipped)}
-      >
-        <div className={`relative w-full h-full duration-500 transform-style-3d shadow-xl rounded-2xl ${isFlipped ? 'rotate-y-180' : ''}`}>
-          
-          {/* Front Side */}
-          <div className="absolute w-full h-full bg-white rounded-2xl p-8 flex flex-col items-center justify-center backface-hidden border-2 border-indigo-50">
-             <div className="text-sm uppercase tracking-widest text-indigo-400 mb-4 font-bold">
-                {hasDefinition ? 'מונח' : 'מילה'}
-             </div>
-             <h3 className="text-4xl md:text-5xl font-bold text-gray-800 text-center break-words max-w-full">
-               {currentWord.term}
-             </h3>
-             {hasDefinition && (
-               <p className="absolute bottom-4 text-gray-400 text-sm animate-pulse">לחץ כדי להפוך</p>
-             )}
-              <button 
-                onClick={handleSpeak}
-                disabled={isPlaying}
-                className="absolute top-4 left-4 p-3 rounded-full bg-indigo-50 hover:bg-indigo-100 text-indigo-600 transition-colors z-10"
-              >
-                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z" />
-                </svg>
-              </button>
-          </div>
-
-          {/* Back Side (Definition) */}
-          <div className="absolute w-full h-full bg-indigo-600 rounded-2xl p-8 flex flex-col items-center justify-center backface-hidden rotate-y-180">
-            <div className="text-sm uppercase tracking-widest text-indigo-200 mb-4 font-bold">הגדרה</div>
-            <p className="text-2xl md:text-3xl font-medium text-white text-center leading-relaxed">
-              {currentWord.definition}
-            </p>
-             <button 
-                onClick={handleSpeak}
-                disabled={isPlaying}
-                className="absolute top-4 left-4 p-3 rounded-full bg-indigo-500 hover:bg-indigo-400 text-white transition-colors z-10"
-              >
-                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z" />
-                </svg>
-              </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 sm:flex sm:flex-row gap-3 mt-8 w-full justify-center items-center">
-        <button 
-          onClick={handlePrev}
-          className="col-span-1 bg-white border border-gray-200 text-gray-700 px-4 py-3 rounded-xl hover:bg-gray-50 font-medium transition-all shadow-sm w-full sm:w-28"
-        >
-          הקודם
-        </button>
-        <button 
-          onClick={handleForgot}
-          className="col-span-1 bg-orange-50 text-orange-700 border border-orange-200 px-4 py-3 rounded-xl hover:bg-orange-100 font-medium transition-all shadow-sm w-full sm:w-auto flex items-center justify-center gap-1"
-        >
-          <span className="text-lg">↺</span>
-          שוב
-        </button>
-        <button 
-          onClick={handleSaveForReview}
-          className="col-span-1 bg-teal-50 text-teal-700 border border-teal-200 px-4 py-3 rounded-xl hover:bg-teal-100 font-medium transition-all shadow-sm w-full sm:w-auto flex items-center justify-center gap-1"
-        >
-          <span className="text-lg">⭐</span>
-          לסקירה
-        </button>
-        <button 
-          onClick={handleNext}
-          className="col-span-1 bg-indigo-600 text-white px-4 py-3 rounded-xl hover:bg-indigo-700 font-medium transition-all shadow-md w-full sm:w-28"
-        >
-          הבא
-        </button>
-      </div>
-    </div>
-  );
-};
-
-// --- TestMode Component ---
-interface TestModeProps {
-  words: WordItem[];
-  onComplete: (results: TestResult[]) => void;
-  onCancel: () => void;
-}
-
-const TestMode: React.FC<TestModeProps> = ({ words, onComplete, onCancel }) => {
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [userInput, setUserInput] = useState('');
-  const [results, setResults] = useState<TestResult[]>([]);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [testStarted, setTestStarted] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  // Guard clause
-  if (!words || words.length === 0) {
-     return (
-        <div className="flex flex-col items-center justify-center h-full">
-            <p className="text-gray-500 mb-4">אין מילים למבחן.</p>
-            <button onClick={onCancel} className="text-indigo-600">חזרה</button>
-        </div>
-     );
-  }
-
-  const currentWord = words[currentIndex];
-  // Safe guard
-  if (!currentWord) return null;
-
-  useEffect(() => {
-    setUserInput('');
-    if (testStarted) {
-      const timer = setTimeout(() => {
-        playAudio();
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [currentIndex, testStarted]);
-
-  const playAudio = async () => {
-    if (isPlaying) return;
-
-    if (!testStarted) {
-      setTestStarted(true);
-    }
-
-    setIsPlaying(true);
-    const textToSpeak = currentWord.definition ? currentWord.definition : currentWord.term;
-    await playTextToSpeech(textToSpeak);
-    setIsPlaying(false);
-    setTimeout(() => inputRef.current?.focus(), 100);
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const isCorrect = checkAnswer(currentWord.term, userInput);
-    
-    const newResult: TestResult = {
-      wordId: currentWord.id,
-      term: currentWord.term,
-      userAnswer: userInput,
-      isCorrect,
-    };
-
-    const newResults = [...results, newResult];
-    setResults(newResults);
-
-    if (currentIndex < words.length - 1) {
-      setCurrentIndex(prev => prev + 1);
-    } else {
-      onComplete(newResults);
-    }
-  };
-
-  return (
-    <div className="max-w-xl mx-auto w-full px-4">
-      <div className="mb-6 flex justify-between items-center">
-        <h2 className="text-lg font-semibold text-gray-700">מבחן הכתבה</h2>
-        <span className="text-sm font-mono text-gray-500 bg-gray-100 px-2 py-1 rounded" dir="ltr">
-          {currentIndex + 1} / {words.length}
-        </span>
-      </div>
-
-      <div className="bg-white p-8 rounded-2xl shadow-xl flex flex-col items-center">
-        <button 
-            onClick={playAudio}
-            disabled={isPlaying}
-            className={`w-24 h-24 rounded-full flex items-center justify-center mb-8 transition-all duration-300 ${
-                isPlaying 
-                ? 'bg-indigo-100 text-indigo-600 scale-110 ring-4 ring-indigo-200' 
-                : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg hover:shadow-indigo-500/30'
-            }`}
-        >
-             {isPlaying ? (
-                 <div className="flex gap-1 h-8 items-center">
-                    <div className="w-1 bg-current animate-[pulse_0.6s_ease-in-out_infinite] h-4"></div>
-                    <div className="w-1 bg-current animate-[pulse_0.6s_ease-in-out_0.2s_infinite] h-8"></div>
-                    <div className="w-1 bg-current animate-[pulse_0.6s_ease-in-out_0.4s_infinite] h-4"></div>
-                 </div>
-             ) : (
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-10 h-10">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z" />
-                </svg>
-             )}
-        </button>
-
-        <p className="text-gray-500 text-sm mb-6 text-center">
-          {!testStarted
-            ? "לחץ על הרמקול כדי להתחיל."
-            : currentWord.definition 
-                ? "הקשב להגדרה והקלד את המילה." 
-                : "הקשב למילה והקלד אותה."}
-        </p>
-
-        <form onSubmit={handleSubmit} className="w-full">
-            <input
-                ref={inputRef}
-                type="text"
-                value={userInput}
-                onChange={(e) => setUserInput(e.target.value)}
-                placeholder="הקלד את התשובה..."
-                className="w-full text-center text-xl p-4 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:ring-0 outline-none transition-colors mb-6"
-                autoComplete="off"
-                autoCapitalize="off"
-            />
-            
-            <button
-                type="submit"
-                className="w-full bg-indigo-600 text-white py-3.5 rounded-xl font-semibold text-lg hover:bg-indigo-700 transition-transform active:scale-95 shadow-md"
-            >
-                שלח תשובה
-            </button>
-        </form>
-      </div>
-
-      <div className="mt-6 text-center">
-        <button 
-            onClick={onCancel} 
-            className="text-gray-400 hover:text-red-500 text-sm font-medium transition-colors"
-        >
-            בטל מבחן
-        </button>
-      </div>
-    </div>
-  );
-};
-
-// --- ResultScreen Component ---
-interface ResultScreenProps {
-  results: TestResult[];
-  onHome: () => void;
-  onRetry: () => void;
-}
-
-const ResultScreen: React.FC<ResultScreenProps> = ({ results, onHome, onRetry }) => {
-  const correctCount = results.filter(r => r.isCorrect).length;
-  const percentage = results.length > 0 ? Math.round((correctCount / results.length) * 100) : 0;
-
-  const handleShare = async () => {
-    const text = `סיימתי מבחן הכתבה ב-Dixi עם ציון ${percentage}% (${correctCount}/${results.length})! 📝✨`;
-    
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: 'התוצאה שלי ב-Dixi',
-          text: text,
-          url: window.location.origin // Share the app link
-        });
-      } catch (err) {
-        // User cancelled or error
-      }
-    } else {
-      try {
-        await navigator.clipboard.writeText(text);
-        alert('התוצאה הועתקה ללוח!');
-      } catch (err) {
-        alert('לא ניתן לשתף בדפדפן זה');
-      }
-    }
-  };
-
-  return (
-    <div className="w-full max-w-4xl mx-auto bg-white rounded-xl shadow-lg p-6 md:p-10 flex flex-col h-[85vh]">
-      <div className="text-center mb-8">
-        <h2 className="text-3xl font-bold text-gray-800 mb-2">המבחן הסתיים!</h2>
-        <div className="flex items-center justify-center gap-4" dir="ltr">
-             <div className="text-6xl font-bold text-indigo-600">{percentage}%</div>
-             <div className="text-gray-500 text-sm text-right">
-                <div className="font-semibold text-gray-700">{correctCount} / {results.length}</div>
-                <div>תשובות נכונות</div>
-             </div>
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto custom-scrollbar pl-2 mb-6">
-        <table className="w-full text-right border-collapse">
-            <thead className="sticky top-0 bg-white z-10 border-b-2 border-gray-100">
-                <tr>
-                    <th className="py-3 px-2 text-gray-500 font-medium text-sm">שאלה</th>
-                    <th className="py-3 px-2 text-gray-500 font-medium text-sm">התשובה שלך</th>
-                    <th className="py-3 px-2 text-gray-500 font-medium text-sm text-left">סטטוס</th>
-                </tr>
-            </thead>
-            <tbody>
-                {results.map((result, idx) => (
-                    <tr key={idx} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
-                        <td className="py-4 px-2 font-medium text-gray-800">{result.term}</td>
-                        <td className={`py-4 px-2 font-mono ${result.isCorrect ? 'text-green-600' : 'text-red-500 line-through'}`}>
-                            {result.userAnswer || <span className="text-gray-300 italic">ריק</span>}
-                        </td>
-                        <td className="py-4 px-2 text-left">
-                            {result.isCorrect ? (
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                    נכון
-                                </span>
-                            ) : (
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                                    שגוי
-                                </span>
-                            )}
-                        </td>
-                    </tr>
-                ))}
-            </tbody>
-        </table>
-      </div>
-
-      <div className="flex flex-col-reverse sm:flex-row justify-center gap-3 pt-4 border-t border-gray-100">
-        <button 
-            onClick={onHome}
-            className="px-6 py-3 rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50 font-medium transition-colors w-full sm:w-auto"
-        >
-            חזרה לתפריט
-        </button>
+        <input type="file" ref={fileInputRef} accept=".json" className="hidden" onChange={onFile} />
         
-        <button 
-            onClick={handleShare}
-            className="px-6 py-3 rounded-xl bg-green-600 text-white hover:bg-green-700 font-medium transition-colors shadow-md flex items-center justify-center gap-2 w-full sm:w-auto"
-        >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" />
-            </svg>
-            שתף תוצאה
-        </button>
+        {reviewCount > 0 && (
+           <button onClick={onReview} className="w-full bg-amber-50 p-5 rounded-xl border border-amber-200 hover:border-amber-400 flex justify-between items-center group transition-all">
+               <span className="font-bold text-gray-800 group-hover:text-amber-700">מילים לסקירה ({reviewCount})</span><span className="text-2xl">⭐</span>
+           </button>
+        )}
+        
+        {hasWords && (
+           <button onClick={() => window.location.hash = AppMode.PREVIEW} className="w-full bg-indigo-600 p-5 rounded-xl text-white shadow-lg hover:bg-indigo-700 flex justify-between items-center transition-all">
+               <span className="font-bold">המשך לתרגול</span><span className="text-2xl">👉</span>
+           </button>
+        )}
+    </div>
+  </div>
+);
 
-        <button 
-            onClick={onRetry}
-            className="px-6 py-3 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 font-medium transition-colors shadow-md w-full sm:w-auto"
-        >
-            נסה שוב
-        </button>
+const InputSection = ({ onSave, onCancel, initialList }: any) => {
+  const [tab, setTab] = useState('manual');
+  const [showDefs, setShowDefs] = useState(false);
+  const [inputs, setInputs] = useState(() => {
+     let list = initialList?.length ? initialList.map((w: any) => ({term: w.term, definition: w.definition || ''})) : [];
+     // Ensure exactly 10 empty slots if less, or fill up to 10 if starting from scratch
+     if (list.length === 0) list = Array(10).fill({ term: '', definition: '' });
+     else while (list.length < 10) list.push({ term: '', definition: '' });
+     return list;
+  });
+  const [paste, setPaste] = useState('');
+
+  const updateInput = (i: number, field: string, val: string) => {
+    const newInputs = [...inputs];
+    newInputs[i] = { ...newInputs[i], [field]: val };
+    setInputs(newInputs);
+  };
+
+  const clearInputs = () => {
+    if (confirm('האם לנקות את כל השורות?')) {
+        setInputs(Array(10).fill({ term: '', definition: '' }));
+    }
+  };
+
+  const process = () => {
+    let list: WordItem[] = [];
+    if (tab === 'manual') {
+        list = inputs
+            .filter((i: any) => i.term.trim())
+            .map((i: any) => ({ id: generateId(), term: i.term.trim(), definition: i.definition?.trim() || undefined }));
+    } else {
+        list = paste.split('\n')
+            .filter(l => l.trim())
+            .map(l => ({ id: generateId(), term: l.trim() }));
+    }
+    if (!list.length) return alert('הזן לפחות מילה אחת');
+    onSave(list);
+  };
+
+  return (
+    <div className="bg-white p-6 rounded-xl shadow-lg w-full max-w-4xl mx-auto flex flex-col h-[85vh]">
+      <div className="flex justify-between items-center mb-4 shrink-0">
+          <h2 className="text-2xl font-bold text-indigo-800">יצירת רשימה</h2>
+          <div className="flex bg-gray-100 rounded-lg p-1">
+              <button onClick={() => setTab('manual')} className={`px-4 py-1 rounded-md text-sm font-medium transition-all ${tab === 'manual' ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`}>ידני</button>
+              <button onClick={() => setTab('paste')} className={`px-4 py-1 rounded-md text-sm font-medium transition-all ${tab === 'paste' ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`}>הדבקה</button>
+          </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto custom-scrollbar p-1">
+        {tab === 'manual' ? (
+          <>
+            <div className="flex items-center justify-between mb-4 bg-indigo-50 p-3 rounded-lg border border-indigo-100">
+                <div className="flex items-center gap-2">
+                    <input type="checkbox" checked={showDefs} onChange={e => setShowDefs(e.target.checked)} className="w-5 h-5 text-indigo-600 cursor-pointer rounded" />
+                    <span className="text-sm font-medium text-indigo-900 cursor-pointer" onClick={() => setShowDefs(!showDefs)}>הצג שדה הגדרה/תרגום</span>
+                </div>
+            </div>
+            
+            <div className="space-y-3">
+                {inputs.map((inp: any, i: number) => (
+                    <div key={i} className="flex gap-2 items-center">
+                        <span className="w-6 text-gray-400 text-sm font-mono">{i+1}.</span>
+                        <input 
+                            placeholder={`מילה ${i+1}`}
+                            className="flex-1 border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none transition-all" 
+                            value={inp.term} 
+                            onChange={e => updateInput(i, 'term', e.target.value)} 
+                        />
+                        {showDefs && (
+                            <input 
+                                placeholder="הגדרה / תרגום" 
+                                className="flex-1 border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none transition-all" 
+                                value={inp.definition} 
+                                onChange={e => updateInput(i, 'definition', e.target.value)} 
+                            />
+                        )}
+                    </div>
+                ))}
+                
+                <div className="flex gap-2 mt-4">
+                    <button onClick={() => setInputs([...inputs, ...Array(5).fill({term:'', definition:''})])} className="flex-1 py-2 text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg text-sm font-medium hover:bg-indigo-100 transition-colors">+ הוסף שורות</button>
+                    <button onClick={clearInputs} className="px-4 py-2 text-red-600 bg-red-50 border border-red-100 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors">נקה הכל</button>
+                </div>
+            </div>
+          </>
+        ) : (
+            <textarea className="w-full h-full border rounded-lg p-4 font-mono text-base focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="הדבק מילים כאן (כל מילה בשורה נפרדת)..." value={paste} onChange={e => setPaste(e.target.value)} />
+        )}
+      </div>
+
+      <div className="mt-4 pt-4 border-t flex justify-end gap-3 shrink-0">
+          <button onClick={onCancel} className="px-6 py-2 rounded-lg text-gray-600 hover:bg-gray-100 transition-colors font-medium">ביטול</button>
+          <button onClick={process} className="px-6 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition-colors shadow-sm">שמור רשימה</button>
       </div>
     </div>
   );
 };
 
-// =================================================================================
-// MAIN APP COMPONENT
-// =================================================================================
-const App = () => {
-  const [words, setWords] = useState<WordItem[]>([]);
+const PracticeMode = ({ words, onBack, onMark }: any) => {
+  const [idx, setIdx] = useState(0);
+  const [flip, setFlip] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const word = words[idx];
+
+  const next = () => { setFlip(false); setError(null); setIdx((idx + 1) % words.length); };
   
-  const [reviewWords, setReviewWords] = useState<WordItem[]>(() => {
-    try {
-        const saved = localStorage.getItem('dixi_review_words');
-        return saved ? JSON.parse(saved) : [];
-    } catch { return []; }
-  });
-
-  const [mode, setMode] = useState<string>(AppMode.MENU);
-  const [testResults, setTestResults] = useState<TestResult[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const updateUrl = (newMode: string, replace = false) => {
-    const url = new URL(window.location.href);
-    if (newMode === AppMode.MENU) {
-        url.searchParams.delete('page');
-    } else {
-        url.searchParams.set('page', newMode);
-    }
-    
-    if (url.href !== window.location.href) {
-        const stateAction = replace ? window.history.replaceState : window.history.pushState;
-        stateAction.call(window.history, {}, '', url.toString());
-    }
+  const speak = async (e: React.MouseEvent) => { 
+      e.stopPropagation(); 
+      setError(null);
+      
+      const result = await playTextToSpeech((flip && word.definition) ? word.definition : word.term);
+      if (!result.success) {
+          setError(result.error || "שגיאה בניגון שמע");
+      }
   };
 
+  return (
+    <div className="max-w-2xl w-full mx-auto p-4 flex flex-col h-[70vh] justify-center">
+       <div className="flex justify-between mb-4">
+           <button onClick={onBack} className="text-gray-500 hover:text-gray-800 transition-colors flex items-center gap-1">← חזרה</button>
+           <span className="text-gray-400 font-mono">{idx + 1} / {words.length}</span>
+       </div>
+
+        {error && (
+           <div className="mb-4 bg-red-50 text-red-700 p-3 rounded-lg border border-red-200 text-sm flex items-center justify-between animate-fade-in">
+              <span>⚠️ {error} - בדוק את עוצמת השמע בדפדפן</span>
+              <button onClick={() => setError(null)} className="font-bold px-2">✕</button>
+           </div>
+       )}
+       
+       <div onClick={() => word.definition && setFlip(!flip)} className="relative flex-1 bg-white rounded-2xl shadow-xl flex flex-col items-center justify-center p-8 cursor-pointer transition-transform duration-300 transform active:scale-[0.99] border-2 border-transparent hover:border-indigo-100">
+           <button onClick={speak} className="absolute top-4 left-4 p-3 bg-indigo-50 text-indigo-600 rounded-full z-10 hover:bg-indigo-100 transition-colors">🔊</button>
+           <div className="text-sm text-indigo-400 uppercase font-bold mb-4 tracking-wider">{flip ? 'הגדרה' : 'מילה'}</div>
+           <h2 className="text-4xl md:text-5xl font-bold text-center text-gray-800 break-words w-full px-4">{flip ? word.definition : word.term}</h2>
+           {word.definition && <p className="absolute bottom-6 text-gray-400 text-xs animate-pulse">לחץ כדי להפוך</p>}
+       </div>
+
+       <div className="flex gap-3 mt-8">
+           <button onClick={() => setIdx((idx - 1 + words.length) % words.length)} className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors font-medium">הקודם</button>
+           <button onClick={(e) => { e.stopPropagation(); onMark(word); next(); }} className="flex-1 py-3 rounded-xl bg-amber-100 text-amber-700 font-bold hover:bg-amber-200 transition-colors border border-amber-200">⭐ לסקירה</button>
+           <button onClick={next} className="flex-1 py-3 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-700 transition-colors shadow-md">הבא</button>
+       </div>
+    </div>
+  );
+};
+
+const TestMode = ({ words, onDone, onCancel }: any) => {
+  const [idx, setIdx] = useState(0);
+  const [val, setVal] = useState('');
+  const [res, setRes] = useState<TestResult[]>([]);
+  const [started, setStarted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const inp = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
-    try {
-      const savedWords = localStorage.getItem('dixi_words');
-      let loadedWords: WordItem[] = [];
-      if (savedWords) {
-        loadedWords = JSON.parse(savedWords);
-        setWords(loadedWords);
-      }
+     if(started) {
+         setVal('');
+         setError(null);
+         const t = setTimeout(() => play(), 600);
+         return () => clearTimeout(t);
+     }
+  }, [idx, started]);
 
-      const redirectPath = sessionStorage.getItem('redirect');
-      if (redirectPath) {
-        sessionStorage.removeItem('redirect');
-        const redirectUrl = new URL(redirectPath);
-        const page = redirectUrl.searchParams.get('page') || AppMode.MENU;
+  const play = async () => {
+     setError(null);
+     const w = words[idx];
+     const result = await playTextToSpeech(w.definition || w.term);
+     if (!result.success) {
+         setError(result.error || "לא ניתן להשמיע שמע");
+     } else {
+        inp.current?.focus();
+     }
+  };
 
-        if (Object.values(AppMode).includes(page)) {
-          if ([AppMode.PRACTICE, AppMode.TEST, AppMode.PREVIEW].includes(page) && loadedWords.length === 0) {
-            setMode(AppMode.MENU);
-            updateUrl(AppMode.MENU, true);
-          } else {
-            setMode(page);
-            window.history.replaceState({}, '', redirectUrl.toString());
-          }
-          return;
-        }
-      }
+  const submit = (e: React.FormEvent) => {
+      e.preventDefault();
+      const w = words[idx];
+      const nextRes = [...res, { wordId: w.id, term: w.term, userAnswer: val, isCorrect: checkAnswer(w.term, val) }];
+      setRes(nextRes);
+      if (idx < words.length - 1) setIdx(idx + 1);
+      else onDone(nextRes);
+  };
 
-      const params = new URLSearchParams(window.location.search);
-      const page = params.get('page') || AppMode.MENU;
-      
-      if (Object.values(AppMode).includes(page)) {
-        if ([AppMode.PRACTICE, AppMode.TEST, AppMode.PREVIEW].includes(page) && loadedWords.length === 0) {
-           setMode(AppMode.MENU);
-           updateUrl(AppMode.MENU, true);
-        } else {
-           setMode(page);
-        }
-      }
-    } catch (e) {
-      console.error("Error initializing app:", e);
-    }
+  if(!started) return (
+      <div className="text-center p-8 md:p-12 bg-white rounded-2xl shadow-xl max-w-md w-full mx-auto">
+          <div className="text-6xl mb-6">🎧</div>
+          <h2 className="text-2xl font-bold mb-4 text-gray-800">מוכן למבחן הכתבה?</h2>
+          <p className="text-gray-600 mb-8 leading-relaxed">האפליקציה תשמיע את המילה (או ההגדרה), ועליך להקליד את התשובה המדויקת.</p>
+          <button onClick={() => { setStarted(true); play(); }} className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-indigo-700 transition-colors shadow-lg transform active:scale-[0.98] transition-transform">התחל מבחן</button>
+          <button onClick={onCancel} className="mt-6 text-gray-500 text-sm hover:text-gray-800 font-medium">ביטול וחזרה</button>
+      </div>
+  );
+
+  return (
+      <div className="max-w-xl w-full mx-auto px-4">
+          <div className="flex justify-between mb-8 items-center">
+              <span className="text-gray-500 font-medium bg-gray-100 px-3 py-1 rounded-full text-sm">שאלה {idx + 1} מתוך {words.length}</span>
+              <button onClick={play} className="text-indigo-600 font-bold hover:text-indigo-800 flex items-center gap-1 bg-indigo-50 px-3 py-1 rounded-full">השמע שוב 🔊</button>
+          </div>
+          
+          {error && (
+             <div className="mb-6 bg-red-50 text-red-700 p-4 rounded-xl border border-red-200 text-center animate-fade-in shadow-sm">
+                 <div className="font-bold mb-1">❌ שגיאת שמע</div>
+                 <div className="text-sm">{error}</div>
+                 <button onClick={play} className="mt-2 text-sm underline text-red-800 hover:text-red-950">נסה שוב</button>
+             </div>
+          )}
+
+          <form onSubmit={submit} className="bg-white p-8 rounded-2xl shadow-lg border border-gray-100">
+              <input ref={inp} autoFocus value={val} onChange={e => setVal(e.target.value)} className="w-full text-center text-2xl p-4 border-b-2 border-indigo-100 focus:border-indigo-600 outline-none mb-8 transition-colors bg-transparent" placeholder="הקלד כאן..." dir="auto" />
+              <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold shadow-md hover:bg-indigo-700 transition-all text-lg">אישור</button>
+          </form>
+      </div>
+  );
+};
+
+const ResultScreen = ({ res, onHome }: any) => {
+  const score = Math.round((res.filter((r: any) => r.isCorrect).length / res.length) * 100);
+  return (
+      <div className="max-w-2xl w-full mx-auto bg-white rounded-2xl shadow-xl p-6 h-[80vh] flex flex-col">
+          <div className="text-center mb-6">
+              <div className="text-6xl font-bold text-indigo-600 mb-2">{score}%</div>
+              <div className="text-gray-500 font-medium">ציון סופי</div>
+          </div>
+          <div className="flex-1 overflow-auto border-t border-b custom-scrollbar">
+              {res.map((r: any, i: number) => (
+                  <div key={i} className="flex justify-between items-center p-4 border-b last:border-0 hover:bg-gray-50 transition-colors">
+                      <div>
+                          <div className="font-bold text-gray-800 text-lg">{r.term}</div>
+                          <div className={`text-base font-mono mt-1 ${r.isCorrect ? 'text-green-600' : 'text-red-500 line-through'}`}>{r.userAnswer || '(ריק)'}</div>
+                      </div>
+                      <div className="text-2xl">{r.isCorrect ? '✅' : '❌'}</div>
+                  </div>
+              ))}
+          </div>
+          <button onClick={onHome} className="mt-6 w-full bg-gray-100 text-gray-800 py-3 rounded-xl font-bold hover:bg-gray-200 transition-colors">חזרה לתפריט הראשי</button>
+      </div>
+  );
+};
+
+// =================================================================================
+// MAIN APP
+// =================================================================================
+
+const App = () => {
+  const [words, setWords] = useState(() => JSON.parse(localStorage.getItem('dixi_words') || '[]'));
+  const [reviews, setReviews] = useState(() => JSON.parse(localStorage.getItem('dixi_reviews') || '[]'));
+  const [mode, setMode] = useState(AppMode.MENU);
+  const [results, setResults] = useState([]);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+     // Handle hash based routing for back button support
+     const handleHash = () => {
+         const m = window.location.hash.replace('#', '') || AppMode.MENU;
+         setMode(m);
+     };
+     window.addEventListener('hashchange', handleHash);
+     handleHash(); // Initial check
+     return () => window.removeEventListener('hashchange', handleHash);
   }, []);
 
-  useEffect(() => {
-    if (words.length > 0) {
-      localStorage.setItem('dixi_words', JSON.stringify(words));
-    }
-  }, [words]);
-
-  useEffect(() => {
-    localStorage.setItem('dixi_review_words', JSON.stringify(reviewWords));
-  }, [reviewWords]);
-
-  const handleModeChange = (newMode: string) => {
-    setMode(newMode);
-    updateUrl(newMode);
+  const saveList = (list: WordItem[]) => {
+      setWords(list);
+      localStorage.setItem('dixi_words', JSON.stringify(list));
+      window.location.hash = AppMode.PREVIEW;
   };
 
-  const handleSaveList = (newList: WordItem[]) => {
-    setWords(newList);
-    handleModeChange(AppMode.PREVIEW);
+  const addReview = (w: WordItem) => {
+      if(!reviews.some((r: any) => r.term === w.term)) {
+          const newRev = [...reviews, w];
+          setReviews(newRev);
+          localStorage.setItem('dixi_reviews', JSON.stringify(newRev));
+      }
   };
 
-  const handleAddToReview = (word: WordItem) => {
-    setReviewWords(prev => {
-        if (prev.some(w => w.term === word.term)) return prev;
-        return [...prev, word];
-    });
-  };
-
-  const handleLoadReview = () => {
-      if (reviewWords.length === 0) return;
-      setWords(reviewWords);
-      handleModeChange(AppMode.PREVIEW);
-  };
-
-  const downloadList = () => {
-    const dataStr = JSON.stringify(words, null, 2);
-    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
-    const exportFileDefaultName = 'dixi_list.json';
-    const linkElement = document.createElement('a');
-    linkElement.setAttribute('href', dataUri);
-    linkElement.setAttribute('download', exportFileDefaultName);
-    linkElement.click();
-  };
-
-  const uploadList = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const fileReader = new FileReader();
-    if (e.target.files && e.target.files.length > 0) {
-        fileReader.readAsText(e.target.files[0], "UTF-8");
-        fileReader.onload = (event) => {
-            if(event.target?.result) {
-                try {
-                    const parsed = JSON.parse(event.target.result as string);
-                    if(Array.isArray(parsed)) {
-                        setWords(parsed);
-                        handleModeChange(AppMode.PREVIEW);
-                    }
-                } catch (err) {
-                    alert("קובץ לא תקין");
-                }
+  const loadFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const fr = new FileReader();
+      fr.onload = (ev) => {
+          try { 
+            const result = ev.target?.result;
+            if (typeof result === 'string') {
+              saveList(JSON.parse(result)); 
             }
-        };
-        // Reset file input so the same file can be selected again
-        e.target.value = '';
-    }
+          } 
+          catch(e) { alert('שגיאה בקובץ'); }
+      };
+      if(e.target.files?.[0]) fr.readAsText(e.target.files[0]);
   };
 
-  const renderContent = () => {
-    switch (mode) {
-      case AppMode.CREATE_LIST:
-        return <InputSection onSave={handleSaveList} onCancel={() => handleModeChange(AppMode.MENU)} initialList={words} />;
-      case AppMode.PRACTICE:
-        return <PracticeMode words={words} onBack={() => handleModeChange(AppMode.PREVIEW)} onAddToReview={handleAddToReview} />;
-      case AppMode.TEST:
-        return <TestMode words={words} onComplete={(results: TestResult[]) => { setTestResults(results); handleModeChange(AppMode.RESULT); }} onCancel={() => handleModeChange(AppMode.PREVIEW)} />;
-      case AppMode.RESULT:
-        return <ResultScreen results={testResults} onHome={() => handleModeChange(AppMode.MENU)} onRetry={() => handleModeChange(AppMode.TEST)} />;
-      case AppMode.PREVIEW:
-        return (
-          <div className="bg-white rounded-xl shadow-lg p-4 md:p-6 max-w-4xl w-full mx-auto flex flex-col h-full max-h-[85dvh]">
-            <div className="flex justify-between items-center mb-4 md:mb-6 shrink-0">
-                <h2 className="text-xl md:text-2xl font-bold text-gray-800">סקירת מילים</h2>
-                <div className="flex gap-2">
-                     <button onClick={downloadList} className="text-indigo-600 hover:bg-indigo-50 px-3 py-2 rounded text-sm font-medium">שמור</button>
-                     <button onClick={() => handleModeChange(AppMode.CREATE_LIST)} className="text-gray-600 hover:bg-gray-100 px-3 py-2 rounded text-sm font-medium">ערוך</button>
-                </div>
-            </div>
-            <div className="flex-1 overflow-y-auto custom-scrollbar border rounded-lg border-gray-200">
-                <table className="w-full text-right">
-                    <thead className="bg-gray-50 sticky top-0">
-                        <tr>
-                            <th className="p-3 text-xs font-semibold tracking-wide text-gray-500 uppercase border-b">מילה</th>
-                            <th className="p-3 text-xs font-semibold tracking-wide text-gray-500 uppercase border-b">הגדרה</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                        {words.map(w => (
-                            <tr key={w.id} className="hover:bg-gray-50">
-                                <td className="p-3 text-gray-800 font-medium">{w.term}</td>
-                                <td className="p-3 text-gray-600 text-sm">{w.definition || '-'}</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-            <div className="mt-4 md:mt-6 shrink-0 flex flex-col-reverse md:flex-row justify-between gap-3">
-                <button onClick={() => handleModeChange(AppMode.MENU)} className="w-full md:w-auto px-6 py-3 text-gray-600 font-medium hover:bg-gray-100 rounded-xl">חזרה</button>
-                <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
-                    <button onClick={() => handleModeChange(AppMode.PRACTICE)} className="w-full md:w-auto px-6 py-3 bg-indigo-100 text-indigo-700 font-bold rounded-xl hover:bg-indigo-200 transition-colors">תרגול כרטיסיות</button>
-                    <button onClick={() => handleModeChange(AppMode.TEST)} className="w-full md:w-auto px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 shadow-md hover:shadow-lg transition-all">התחל מבחן</button>
-                </div>
-            </div>
-          </div>
-        );
-      case AppMode.MENU:
-      default:
-        return <LandingPage hasWords={words.length > 0} onCreateList={() => handleModeChange(AppMode.CREATE_LIST)} onLoadList={() => fileInputRef.current?.click()} onContinue={() => handleModeChange(AppMode.PREVIEW)} fileInputRef={fileInputRef} onFileUpload={uploadList} reviewCount={reviewWords.length} onLoadReview={handleLoadReview}/>;
-    }
+  const Page = () => {
+      switch(mode) {
+          case AppMode.CREATE_LIST: return <InputSection onSave={saveList} onCancel={() => window.history.back()} initialList={words} />;
+          case AppMode.PRACTICE: return <PracticeMode words={words} onBack={() => window.history.back()} onMark={addReview} />;
+          case AppMode.TEST: return <TestMode words={words} onDone={(r: any) => { setResults(r); window.location.hash = AppMode.RESULT; }} onCancel={() => window.history.back()} />;
+          case AppMode.RESULT: return <ResultScreen res={results} onHome={() => window.location.hash = ''} />;
+          case AppMode.PREVIEW: return (
+              <div className="max-w-4xl mx-auto w-full p-4 h-[85vh] flex flex-col">
+                  <div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm mb-4 shrink-0">
+                      <h2 className="font-bold text-xl text-gray-800">רשימה נוכחית ({words.length})</h2>
+                      <button onClick={() => window.location.hash = AppMode.CREATE_LIST} className="text-indigo-600 font-medium hover:text-indigo-800 transition-colors bg-indigo-50 px-4 py-2 rounded-lg">עריכה</button>
+                  </div>
+                  <div className="flex-1 bg-white rounded-xl shadow-lg overflow-hidden flex flex-col border border-gray-100">
+                      <div className="overflow-auto flex-1 p-4 custom-scrollbar">
+                          {words.length === 0 ? <div className="text-center text-gray-400 mt-10">הרשימה ריקה</div> : words.map((w: any, i: number) => (
+                              <div key={i} className="border-b last:border-0 py-3 flex justify-between items-center hover:bg-gray-50 px-2 rounded transition-colors group">
+                                  <span className="font-bold text-gray-800">{w.term}</span>
+                                  <span className="text-gray-500 text-sm group-hover:text-indigo-500 transition-colors">{w.definition}</span>
+                              </div>
+                          ))}
+                      </div>
+                      <div className="p-4 border-t bg-gray-50 flex gap-3 shrink-0">
+                          <button onClick={() => window.location.hash = ''} className="px-6 py-3 rounded-xl bg-white border border-gray-200 text-gray-700 font-medium hover:bg-gray-100 transition-colors">תפריט</button>
+                          <button onClick={() => window.location.hash = AppMode.PRACTICE} className="flex-1 py-3 rounded-xl bg-indigo-100 text-indigo-700 font-bold hover:bg-indigo-200 transition-colors border border-indigo-200">תרגול</button>
+                          <button onClick={() => window.location.hash = AppMode.TEST} className="flex-1 py-3 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-700 transition-colors shadow-sm">מבחן</button>
+                      </div>
+                  </div>
+              </div>
+          );
+          default: return <LandingPage hasWords={words.length > 0} onCreate={() => window.location.hash = AppMode.CREATE_LIST} fileInputRef={fileRef} onFile={loadFile} reviewCount={reviews.length} onReview={() => saveList(reviews)} />;
+      }
   };
 
   return (
-    <div className="h-[100dvh] bg-slate-50 flex flex-col overflow-hidden">
-      <header className="bg-white border-b border-gray-200 py-3 md:py-4 px-4 md:px-6 shrink-0 z-50">
-        <div className="max-w-6xl mx-auto flex justify-between items-center">
-            <h1 className="text-2xl font-bold text-indigo-600 cursor-pointer" onClick={() => handleModeChange(AppMode.MENU)}>Dixi</h1>
-            {mode !== AppMode.MENU && (
-                <button onClick={() => handleModeChange(AppMode.MENU)} className="text-sm text-gray-500 hover:text-indigo-600">
-                    יציאה
-                </button>
-            )}
-        </div>
-      </header>
-      <main className="flex-1 flex items-center justify-center p-2 md:p-4 w-full relative">
-        {renderContent()}
-      </main>
-    </div>
+      <div className="h-full flex flex-col">
+          <header className="p-4 bg-white shadow-sm flex justify-between items-center z-10 relative border-b border-gray-200">
+              <h1 className="font-bold text-2xl text-indigo-600 cursor-pointer hover:text-indigo-700 transition-colors tracking-tight" onClick={() => window.location.hash = ''}>Dixi</h1>
+              {mode !== AppMode.MENU && <button onClick={() => window.location.hash = ''} className="text-gray-500 text-sm hover:text-indigo-600 transition-colors font-medium">יציאה</button>}
+          </header>
+          <main className="flex-1 relative flex items-center justify-center bg-slate-50 w-full overflow-hidden">
+             <Page />
+          </main>
+      </div>
   );
-}
+};
 
-// =================================================================================
-// RENDER APP
-// =================================================================================
+// Render
 const rootElement = document.getElementById('root');
-if (!rootElement) {
-  throw new Error("Could not find root element to mount to");
-}
-
-try {
-  const root = createRoot(rootElement);
-  root.render(
-    <React.StrictMode>
-      <ErrorBoundary>
-        <App />
-      </ErrorBoundary>
-    </React.StrictMode>
-  );
-} catch (e) {
-  console.error("Failed to render app", e);
+if (rootElement) {
+    const root = createRoot(rootElement);
+    root.render(<App />);
+    
+    // Remove Loader
+    const loader = document.getElementById('app-loader');
+    if(loader) loader.style.display = 'none';
 }
