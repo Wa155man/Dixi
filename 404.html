@@ -4,8 +4,7 @@
     <meta charset="utf-8">
     <title>Redirecting...</title>
     <script>
-        // Store the current path in sessionStorage and redirect to root
-        // This allows SPA routing on static hosts like GitHub Pages
+        // Store the current path in sessionStorage and redirect to relative root
         sessionStorage.redirect = location.href;
         location.replace("./");
     </script>

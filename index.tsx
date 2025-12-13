@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Modality } from "@google/genai";
 
 // =================================================================================
 // ERROR BOUNDARY
@@ -54,7 +54,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
       );
     }
 
-    return this.props.children;
+    return (this as any).props.children;
   }
 }
 
@@ -208,8 +208,7 @@ const playTextToSpeech = async (text: string): Promise<void> => {
         model: "gemini-2.5-flash-preview-tts", 
         contents: [{ parts: [{ text: `Say the following word or phrase clearly: ${cleanText}` }] }],
         config: {
-          // Use string literal 'AUDIO' to avoid import issues
-          responseModalities: ['AUDIO' as any], 
+          responseModalities: [Modality.AUDIO], 
           speechConfig: {
             voiceConfig: {
               prebuiltVoiceConfig: { voiceName: 'Kore' },
