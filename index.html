@@ -118,26 +118,14 @@
 </head>
   <body class="bg-slate-50 text-slate-900 min-h-screen h-[100dvh] overflow-hidden">
     <div id="root" class="h-full w-full">
-        <div id="loading-state" style="display: flex; justify-content: center; align-items: center; height: 100%; color: #64748b; flex-direction: column; gap: 16px;">
-            <div style="width: 40px; height: 40px; border: 4px solid #e2e8f0; border-top-color: #4f46e5; border-radius: 50%; animation: spin 1s linear infinite;"></div>
-            <div>טוען אפליקציה...</div>
-            <div style="font-size: 12px; opacity: 0.6; margin-top: 10px;">זה עשוי לקחת מספר שניות</div>
-            <button onclick="window.location.reload()" style="display: none; margin-top: 20px; padding: 10px 20px; background: #e0e7ff; color: #4338ca; border: none; border-radius: 8px; cursor: pointer;" id="retry-btn">לחץ לטעינה מחדש</button>
+        <!-- Initial loading state simplified to just a subtle spinner without text/buttons -->
+        <div id="loading-state" style="display: flex; justify-content: center; align-items: center; height: 100%;">
+            <div style="width: 40px; height: 40px; border: 4px solid #f1f5f9; border-top-color: #4f46e5; border-radius: 50%; animation: spin 1s linear infinite;"></div>
         </div>
         <style>
             @keyframes spin { to { transform: rotate(360deg); } }
         </style>
     </div>
-
-    <script>
-        // Timeout to show retry button if app hangs
-        setTimeout(function() {
-            var retryBtn = document.getElementById('retry-btn');
-            if(retryBtn && document.getElementById('loading-state')) {
-                retryBtn.style.display = 'block';
-            }
-        }, 8000);
-    </script>
 
     <!-- Load the entire application from a single, consolidated script -->
     <script type="text/babel" data-type="module" data-presets="react,typescript" src="./index.tsx"></script>

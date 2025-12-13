@@ -346,7 +346,7 @@ const LandingPage = ({
       </div>
       
       <div className="mt-8 text-xs text-gray-400">
-        גרסה 2.4
+        גרסה 2.5
       </div>
     </div>
   );
