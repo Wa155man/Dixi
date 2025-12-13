@@ -142,8 +142,13 @@ let aiClient: GoogleGenAI | null = null;
 const getAiClient = () => {
     if (!aiClient) {
         try {
+            // Using process.env.API_KEY as strictly required by guidelines
             const apiKey = process.env.API_KEY || '';
-            aiClient = new GoogleGenAI({ apiKey });
+            if (apiKey) {
+                aiClient = new GoogleGenAI({ apiKey });
+            } else {
+                console.warn("API Key is missing.");
+            }
         } catch (e) {
             console.error("Failed to init AI client", e);
         }
@@ -184,6 +189,7 @@ const playTextToSpeech = async (text: string): Promise<void> => {
         utterance.rate = 0.9;
         utterance.lang = 'en-US'; 
         
+        // Simple Hebrew detection
         if (/[\u0590-\u05FF]/.test(cleanText)) {
             utterance.lang = 'he-IL';
         }
@@ -219,6 +225,7 @@ const playTextToSpeech = async (text: string): Promise<void> => {
 
       const part = response.candidates?.[0]?.content?.parts?.[0];
       if (part?.text) {
+          // Model returned text instead of audio
           return fallbackToBrowserTTS();
       }
 
@@ -294,8 +301,8 @@ const LandingPage = ({
         onTouchStart={handleInteraction}
     >
       <div className="mb-6 md:mb-8">
-        <h1 className="text-4xl font-extrabold text-indigo-600 mb-2">Dixi</h1>
-        <p className="text-gray-400">תפריט ראשי</p>
+        <h1 className="text-5xl md:text-7xl font-extrabold text-transparent bg-clip-text bg-gradient-to-l from-indigo-600 to-purple-600 mb-4 tracking-tight">Dixi</h1>
+        <p className="text-gray-400">עוזר הכתבה</p>
       </div>
       
       <div className="space-y-4 w-full">
@@ -346,7 +353,7 @@ const LandingPage = ({
       </div>
       
       <div className="mt-8 text-xs text-gray-400">
-        גרסה 2.5
+        גרסה 2.8
       </div>
     </div>
   );
@@ -362,29 +369,43 @@ interface InputSectionProps {
 const InputSection: React.FC<InputSectionProps> = ({ onSave, onCancel, initialList }) => {
   const [activeTab, setActiveTab] = useState<'manual' | 'paste' | 'pairs'>('manual');
   
-  const [manualInputs, setManualInputs] = useState<{term: string}[]>(() => {
+  const [manualInputs, setManualInputs] = useState<{term: string, definition: string}[]>(() => {
+     let inputs: {term: string, definition: string}[] = [];
      if (initialList && initialList.length > 0) {
-        return initialList.map(w => ({term: w.term}));
+        inputs = initialList.map(w => ({term: w.term, definition: w.definition || ''}));
      }
-     // Create exactly 10 rows
-     return Array.from({ length: 10 }).map(() => ({ term: '' }));
+     
+     // Pad to ensure at least 10 items for the standard "10 words" feel
+     if (inputs.length < 10) {
+        const padding = Array.from({ length: 10 - inputs.length }).map(() => ({ term: '', definition: '' }));
+        inputs = [...inputs, ...padding];
+     }
+     
+     return inputs;
   });
 
   const [pasteContent, setPasteContent] = useState('');
   const [pairsContent, setPairsContent] = useState('');
+  const [showDefinitions, setShowDefinitions] = useState(false);
 
-  const handleManualChange = (index: number, value: string) => {
+  const handleManualChange = (index: number, field: 'term' | 'definition', value: string) => {
     setManualInputs(prev => {
         const newInputs = [...prev];
-        newInputs[index] = { term: value };
+        if (!newInputs[index]) newInputs[index] = { term: '', definition: '' };
+        newInputs[index] = { ...newInputs[index], [field]: value };
         return newInputs;
     });
   };
 
   const addMoreManual = () => {
-    // Add 10 more rows
-    setManualInputs(prev => [...prev, ...Array.from({ length: 10 }).map(() => ({ term: '' }))]);
+    setManualInputs(prev => [...prev, ...Array.from({ length: 5 }).map(() => ({ term: '', definition: '' }))]);
   };
+  
+  const clearManual = () => {
+      if(confirm('האם לנקות את כל השורות?')) {
+          setManualInputs(Array.from({ length: 10 }).map(() => ({ term: '', definition: '' })));
+      }
+  }
 
   const processAndSave = () => {
     let finalList: WordItem[] = [];
@@ -392,7 +413,11 @@ const InputSection: React.FC<InputSectionProps> = ({ onSave, onCancel, initialLi
     if (activeTab === 'manual') {
       finalList = manualInputs
         .filter(item => item.term.trim() !== '')
-        .map(item => ({ id: generateId(), term: item.term.trim() }));
+        .map(item => ({ 
+            id: generateId(), 
+            term: item.term.trim(),
+            definition: item.definition?.trim() || undefined
+        }));
     } else if (activeTab === 'paste') {
       finalList = pasteContent
         .split('\n')
@@ -452,26 +477,57 @@ const InputSection: React.FC<InputSectionProps> = ({ onSave, onCancel, initialLi
       <div className="flex-1 overflow-y-auto pl-2 custom-scrollbar">
         {activeTab === 'manual' && (
           <div className="space-y-3 pb-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+             {/* Definitions Toggle */}
+             <div className="mb-4 flex items-center justify-between bg-indigo-50 p-3 rounded-lg border border-indigo-100">
+                <span className="text-sm text-indigo-800 font-medium">הוסף הגדרות או תרגום למילים</span>
+                <label className="flex items-center cursor-pointer relative">
+                    <input 
+                        type="checkbox" 
+                        checked={showDefinitions} 
+                        onChange={(e) => setShowDefinitions(e.target.checked)} 
+                        className="sr-only peer" 
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                </label>
+             </div>
+
+            <div className={`grid ${showDefinitions ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'} gap-3`}>
               {manualInputs.map((input, idx) => (
-                <div key={idx} className="flex items-center gap-2">
-                  <span className="text-gray-400 text-sm w-6 text-center">{idx + 1}.</span>
+                <div key={idx} className={`flex ${showDefinitions ? 'flex-col sm:flex-row' : 'flex-row'} items-center gap-2 bg-gray-50 p-2 rounded-lg border border-gray-200`}>
+                  <span className="text-gray-400 font-mono text-sm w-6 text-center shrink-0">{idx + 1}.</span>
                   <input
                     type="text"
                     value={input.term}
-                    onChange={(e) => handleManualChange(idx, e.target.value)}
-                    className="flex-1 border border-gray-300 rounded-md px-3 py-3 md:py-2 text-base focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                    placeholder="הקלד מילה"
+                    onChange={(e) => handleManualChange(idx, 'term', e.target.value)}
+                    className="flex-1 min-w-0 bg-white border border-gray-300 rounded-md px-3 py-2 text-base focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                    placeholder={showDefinitions ? "מילה" : `מילה ${idx + 1}`}
                   />
+                  {showDefinitions && (
+                      <input
+                        type="text"
+                        value={input.definition}
+                        onChange={(e) => handleManualChange(idx, 'definition', e.target.value)}
+                        className="flex-1 min-w-0 bg-white border border-gray-300 rounded-md px-3 py-2 text-base focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                        placeholder="הגדרה / תרגום"
+                      />
+                  )}
                 </div>
               ))}
             </div>
-            <button
-              onClick={addMoreManual}
-              className="mt-4 w-full sm:w-auto py-3 sm:py-2 text-sm text-indigo-600 hover:text-indigo-800 font-medium flex items-center justify-center gap-1 border border-indigo-100 rounded-lg bg-indigo-50"
-            >
-              + הוסף 10 שורות נוספות
-            </button>
+            <div className="flex gap-2 mt-4">
+                <button
+                onClick={addMoreManual}
+                className="flex-1 py-3 sm:py-2 text-sm text-indigo-600 hover:text-indigo-800 font-medium flex items-center justify-center gap-1 border border-indigo-100 rounded-lg bg-indigo-50"
+                >
+                + הוסף שורות
+                </button>
+                <button
+                onClick={clearManual}
+                className="px-4 py-3 sm:py-2 text-sm text-red-600 hover:text-red-800 font-medium flex items-center justify-center gap-1 border border-red-100 rounded-lg bg-red-50"
+                >
+                נקה
+                </button>
+            </div>
           </div>
         )}
 
@@ -830,6 +886,29 @@ const ResultScreen: React.FC<ResultScreenProps> = ({ results, onHome, onRetry })
   const correctCount = results.filter(r => r.isCorrect).length;
   const percentage = results.length > 0 ? Math.round((correctCount / results.length) * 100) : 0;
 
+  const handleShare = async () => {
+    const text = `סיימתי מבחן הכתבה ב-Dixi עם ציון ${percentage}% (${correctCount}/${results.length})! 📝✨`;
+    
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'התוצאה שלי ב-Dixi',
+          text: text,
+          url: window.location.origin // Share the app link
+        });
+      } catch (err) {
+        // User cancelled or error
+      }
+    } else {
+      try {
+        await navigator.clipboard.writeText(text);
+        alert('התוצאה הועתקה ללוח!');
+      } catch (err) {
+        alert('לא ניתן לשתף בדפדפן זה');
+      }
+    }
+  };
+
   return (
     <div className="w-full max-w-4xl mx-auto bg-white rounded-xl shadow-lg p-6 md:p-10 flex flex-col h-[85vh]">
       <div className="text-center mb-8">
@@ -876,16 +955,27 @@ const ResultScreen: React.FC<ResultScreenProps> = ({ results, onHome, onRetry })
         </table>
       </div>
 
-      <div className="flex justify-center gap-4 pt-4 border-t border-gray-100">
+      <div className="flex flex-col-reverse sm:flex-row justify-center gap-3 pt-4 border-t border-gray-100">
         <button 
             onClick={onHome}
-            className="px-8 py-3 rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50 font-medium transition-colors"
+            className="px-6 py-3 rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50 font-medium transition-colors w-full sm:w-auto"
         >
             חזרה לתפריט
         </button>
+        
+        <button 
+            onClick={handleShare}
+            className="px-6 py-3 rounded-xl bg-green-600 text-white hover:bg-green-700 font-medium transition-colors shadow-md flex items-center justify-center gap-2 w-full sm:w-auto"
+        >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" />
+            </svg>
+            שתף תוצאה
+        </button>
+
         <button 
             onClick={onRetry}
-            className="px-8 py-3 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 font-medium transition-colors shadow-md"
+            className="px-6 py-3 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 font-medium transition-colors shadow-md w-full sm:w-auto"
         >
             נסה שוב
         </button>
