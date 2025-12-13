@@ -17,10 +17,6 @@ interface ErrorBoundaryState {
 class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   public state: ErrorBoundaryState = { hasError: false, error: null };
 
-  constructor(props: ErrorBoundaryProps) {
-    super(props);
-  }
-
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
     return { hasError: true, error };
   }
@@ -96,7 +92,6 @@ const generateId = (): string => {
 
 const normalizeString = (str: string): string => {
   if (!str) return '';
-  // Safe regex for normalization
   return str
     .replace(/[.,/#!$%^&*;:{}=\-_`~()?"']/g, "")
     .replace(/\s{2,}/g, " ")
@@ -146,7 +141,6 @@ async function decodeAudioData(
 let aiClient: GoogleGenAI | null = null;
 const getAiClient = () => {
     if (!aiClient) {
-        // API key must be obtained exclusively from process.env.API_KEY
         try {
             const apiKey = process.env.API_KEY || '';
             aiClient = new GoogleGenAI({ apiKey });
@@ -290,15 +284,12 @@ const LandingPage = ({
       if (ctx.state === 'suspended') {
         await ctx.resume();
       }
-
-      // 2. Request Mic Permission (satisfies browser policy)
-      await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      // Removed Mic permission request
       
       setIsStarted(true);
     } catch (e) {
-      console.error("Permission request failed", e);
-      // Even if failed, we let them in, but features might be limited
-      alert("שים לב: ללא אישור מיקרופון/שמע, חלק מהפונקציות לא יעבדו.");
+      console.error("Audio context start failed", e);
       setIsStarted(true);
     }
   };
@@ -317,13 +308,13 @@ const LandingPage = ({
              >
                  <span className="text-2xl font-bold">התחל</span>
                  <div className="flex items-center gap-2 text-indigo-100 text-sm">
-                    <span>לחץ לאישור שמע ומיקרופון</span>
-                    <span className="text-xl">🎙️</span>
+                    <span>לחץ להפעלת שמע</span>
+                    <span className="text-xl">🔊</span>
                  </div>
              </button>
              
              <div className="mt-12 text-xs text-gray-400">
-                נדרש אישור דפדפן להפעלת שמע
+                נדרש אישור דפדפן להפעלת רמקולים
              </div>
         </div>
       );
@@ -384,7 +375,7 @@ const LandingPage = ({
       </div>
       
       <div className="mt-8 text-xs text-gray-400">
-        גרסה 2.0
+        גרסה 2.3
       </div>
     </div>
   );
