@@ -51,7 +51,7 @@ const InputSection: React.FC<InputSectionProps> = ({ onSave, onCancel, initialLi
     } else if (activeTab === 'pairs') {
       finalList = pairsContent
         .split('\n')
-        .map(line => {
+        .map((line): WordItem | null => {
           const parts = line.split('-');
           if (parts.length >= 2) {
             return {

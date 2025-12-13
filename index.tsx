@@ -274,53 +274,25 @@ const LandingPage = ({
   fileInputRef,
   onFileUpload
 }: LandingPageProps) => {
-  const [isStarted, setIsStarted] = useState(false);
-
-  const handleStart = async () => {
+  
+  // Try to resume audio context on any user interaction with the menu
+  const handleInteraction = () => {
     try {
-      // 1. Resume Audio Context (unlocks playback)
-      const ctx = getAudioContext();
-      if (ctx.state === 'suspended') {
-        await ctx.resume();
-      }
-      
-      // Removed Mic permission request
-      
-      setIsStarted(true);
+        const ctx = getAudioContext();
+        if (ctx.state === 'suspended') {
+            ctx.resume();
+        }
     } catch (e) {
-      console.error("Audio context start failed", e);
-      setIsStarted(true);
+        console.warn("Audio resume failed", e);
     }
   };
 
-  if (!isStarted) {
-      return (
-        <div className="text-center max-w-lg mx-auto w-full px-4 flex flex-col items-center justify-center h-full">
-            <div className="mb-8 md:mb-12">
-                <h1 className="text-5xl md:text-7xl font-extrabold text-transparent bg-clip-text bg-gradient-to-l from-indigo-600 to-purple-600 mb-4 tracking-tight">Dixi</h1>
-                <p className="text-gray-500 text-lg md:text-xl font-light">שפר את אוצר המילים והכתיב שלך</p>
-            </div>
-            
-            <button 
-                 onClick={handleStart}
-                 className="w-full bg-indigo-600 p-8 rounded-3xl shadow-xl hover:bg-indigo-700 hover:shadow-2xl transition-all text-white flex flex-col items-center justify-center gap-4 group ring-4 ring-indigo-50"
-             >
-                 <span className="text-2xl font-bold">התחל</span>
-                 <div className="flex items-center gap-2 text-indigo-100 text-sm">
-                    <span>לחץ להפעלת שמע</span>
-                    <span className="text-xl">🔊</span>
-                 </div>
-             </button>
-             
-             <div className="mt-12 text-xs text-gray-400">
-                נדרש אישור דפדפן להפעלת רמקולים
-             </div>
-        </div>
-      );
-  }
-
   return (
-    <div className="text-center max-w-lg mx-auto w-full px-4 flex flex-col items-center justify-center h-full animate-fade-in">
+    <div 
+        className="text-center max-w-lg mx-auto w-full px-4 flex flex-col items-center justify-center h-full animate-fade-in"
+        onClick={handleInteraction}
+        onTouchStart={handleInteraction}
+    >
       <div className="mb-6 md:mb-8">
         <h1 className="text-4xl font-extrabold text-indigo-600 mb-2">Dixi</h1>
         <p className="text-gray-400">תפריט ראשי</p>
@@ -328,7 +300,7 @@ const LandingPage = ({
       
       <div className="space-y-4 w-full">
           <button 
-              onClick={onCreateList}
+              onClick={(e) => { handleInteraction(); onCreateList(); }}
               className="w-full bg-white p-6 rounded-2xl shadow-sm border-2 border-transparent hover:border-indigo-500 hover:shadow-md transition-all group flex items-center justify-between"
           >
               <span className="text-lg md:text-xl font-bold text-gray-800 group-hover:text-indigo-600">צור רשימה חדשה</span>
@@ -344,7 +316,7 @@ const LandingPage = ({
                   onChange={onFileUpload}
               />
               <button 
-                  onClick={onLoadList}
+                  onClick={(e) => { handleInteraction(); onLoadList(); }}
                   className="w-full bg-white p-6 rounded-2xl shadow-sm border-2 border-transparent hover:border-indigo-500 hover:shadow-md transition-all group flex items-center justify-between"
               >
                   <span className="text-lg md:text-xl font-bold text-gray-800 group-hover:text-indigo-600">טען רשימה שמורה</span>
@@ -354,7 +326,7 @@ const LandingPage = ({
           
           {reviewCount > 0 && (
              <button 
-                 onClick={onLoadReview}
+                 onClick={(e) => { handleInteraction(); onLoadReview(); }}
                  className="w-full bg-amber-50 p-6 rounded-2xl shadow-sm border-2 border-amber-200 hover:border-amber-400 hover:shadow-md transition-all group flex items-center justify-between"
              >
                  <span className="text-lg md:text-xl font-bold text-gray-800 group-hover:text-amber-700">תרגל מילים לסקירה ({reviewCount})</span>
@@ -364,7 +336,7 @@ const LandingPage = ({
 
           {hasWords && (
                <button 
-                  onClick={onContinue}
+                  onClick={(e) => { handleInteraction(); onContinue(); }}
                   className="w-full bg-indigo-600 p-6 rounded-2xl shadow-lg hover:bg-indigo-700 transition-all text-white flex items-center justify-between ring-4 ring-indigo-100"
               >
                   <span className="text-lg md:text-xl font-bold">המשך עם הרשימה</span>
@@ -374,7 +346,7 @@ const LandingPage = ({
       </div>
       
       <div className="mt-8 text-xs text-gray-400">
-        גרסה 2.3
+        גרסה 2.4
       </div>
     </div>
   );
@@ -430,7 +402,7 @@ const InputSection: React.FC<InputSectionProps> = ({ onSave, onCancel, initialLi
     } else if (activeTab === 'pairs') {
       finalList = pairsContent
         .split('\n')
-        .map(line => {
+        .map((line): WordItem | null => {
           const parts = line.split('-');
           if (parts.length >= 2) {
             return {
