@@ -124,7 +124,7 @@ const playTextToSpeech = async (text: string): Promise<{ success: boolean; error
     // 2. Try GenAI
     const apiKey = process.env.API_KEY;
     if (!apiKey) {
-        // No API Key, go straight to fallback without logging an error as it's expected behavior
+        // No API Key, go straight to fallback
         return fallback();
     }
       
@@ -187,31 +187,25 @@ const LandingPage = ({ hasWords, onCreate, onLoad, onReview, reviewCount, fileIn
            </button>
         )}
     </div>
+    <div className="mt-12 text-xs text-gray-400">פועל בדפדפן ובמובייל • גרסה 1.3</div>
   </div>
 );
 
 const InputSection = ({ onSave, onCancel, initialList }: any) => {
   const [tab, setTab] = useState('manual');
-  const [showDefs, setShowDefs] = useState(false);
   const [inputs, setInputs] = useState(() => {
      let list = initialList?.length ? initialList.map((w: any) => ({term: w.term, definition: w.definition || ''})) : [];
-     // Ensure exactly 10 empty slots if less, or fill up to 10 if starting from scratch
      if (list.length === 0) list = Array(10).fill({ term: '', definition: '' });
      else while (list.length < 10) list.push({ term: '', definition: '' });
      return list;
   });
   const [paste, setPaste] = useState('');
+  const [pairs, setPairs] = useState('');
 
   const updateInput = (i: number, field: string, val: string) => {
     const newInputs = [...inputs];
     newInputs[i] = { ...newInputs[i], [field]: val };
     setInputs(newInputs);
-  };
-
-  const clearInputs = () => {
-    if (confirm('האם לנקות את כל השורות?')) {
-        setInputs(Array(10).fill({ term: '', definition: '' }));
-    }
   };
 
   const process = () => {
@@ -220,11 +214,20 @@ const InputSection = ({ onSave, onCancel, initialList }: any) => {
         list = inputs
             .filter((i: any) => i.term.trim())
             .map((i: any) => ({ id: generateId(), term: i.term.trim(), definition: i.definition?.trim() || undefined }));
-    } else {
+    } else if (tab === 'paste') {
         list = paste.split('\n')
             .filter(l => l.trim())
             .map(l => ({ id: generateId(), term: l.trim() }));
+    } else if (tab === 'pairs') {
+        list = pairs.split('\n')
+            .map(l => {
+                const parts = l.split('-');
+                if(parts.length < 2) return null;
+                return { id: generateId(), term: parts[0].trim(), definition: parts.slice(1).join('-').trim() };
+            })
+            .filter(i => i !== null) as WordItem[];
     }
+    
     if (!list.length) return alert('הזן לפחות מילה אחת');
     onSave(list);
   };
@@ -234,21 +237,14 @@ const InputSection = ({ onSave, onCancel, initialList }: any) => {
       <div className="flex justify-between items-center mb-4 shrink-0">
           <h2 className="text-2xl font-bold text-indigo-800">יצירת רשימה</h2>
           <div className="flex bg-gray-100 rounded-lg p-1">
-              <button onClick={() => setTab('manual')} className={`px-4 py-1 rounded-md text-sm font-medium transition-all ${tab === 'manual' ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`}>ידני</button>
-              <button onClick={() => setTab('paste')} className={`px-4 py-1 rounded-md text-sm font-medium transition-all ${tab === 'paste' ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`}>הדבקה</button>
+              <button onClick={() => setTab('manual')} className={`px-3 py-1 rounded-md text-sm font-medium transition-all ${tab === 'manual' ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`}>ידני</button>
+              <button onClick={() => setTab('paste')} className={`px-3 py-1 rounded-md text-sm font-medium transition-all ${tab === 'paste' ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`}>הדבקה</button>
+              <button onClick={() => setTab('pairs')} className={`px-3 py-1 rounded-md text-sm font-medium transition-all ${tab === 'pairs' ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`}>זוגות</button>
           </div>
       </div>
 
       <div className="flex-1 overflow-y-auto custom-scrollbar p-1">
-        {tab === 'manual' ? (
-          <>
-            <div className="flex items-center justify-between mb-4 bg-indigo-50 p-3 rounded-lg border border-indigo-100">
-                <div className="flex items-center gap-2">
-                    <input type="checkbox" checked={showDefs} onChange={e => setShowDefs(e.target.checked)} className="w-5 h-5 text-indigo-600 cursor-pointer rounded" />
-                    <span className="text-sm font-medium text-indigo-900 cursor-pointer" onClick={() => setShowDefs(!showDefs)}>הצג שדה הגדרה/תרגום</span>
-                </div>
-            </div>
-            
+        {tab === 'manual' && (
             <div className="space-y-3">
                 {inputs.map((inp: any, i: number) => (
                     <div key={i} className="flex gap-2 items-center">
@@ -259,25 +255,27 @@ const InputSection = ({ onSave, onCancel, initialList }: any) => {
                             value={inp.term} 
                             onChange={e => updateInput(i, 'term', e.target.value)} 
                         />
-                        {showDefs && (
-                            <input 
-                                placeholder="הגדרה / תרגום" 
-                                className="flex-1 border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none transition-all" 
-                                value={inp.definition} 
-                                onChange={e => updateInput(i, 'definition', e.target.value)} 
-                            />
-                        )}
+                         <input 
+                            placeholder="הגדרה (אופציונלי)" 
+                            className="flex-1 border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none transition-all" 
+                            value={inp.definition} 
+                            onChange={e => updateInput(i, 'definition', e.target.value)} 
+                        />
                     </div>
                 ))}
-                
                 <div className="flex gap-2 mt-4">
-                    <button onClick={() => setInputs([...inputs, ...Array(5).fill({term:'', definition:''})])} className="flex-1 py-2 text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg text-sm font-medium hover:bg-indigo-100 transition-colors">+ הוסף שורות</button>
-                    <button onClick={clearInputs} className="px-4 py-2 text-red-600 bg-red-50 border border-red-100 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors">נקה הכל</button>
+                    <button onClick={() => setInputs([...inputs, ...Array(10).fill({term:'', definition:''})])} className="flex-1 py-2 text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg text-sm font-medium hover:bg-indigo-100 transition-colors">+ הוסף 10 שורות</button>
                 </div>
             </div>
-          </>
-        ) : (
+        )}
+        {tab === 'paste' && (
             <textarea className="w-full h-full border rounded-lg p-4 font-mono text-base focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="הדבק מילים כאן (כל מילה בשורה נפרדת)..." value={paste} onChange={e => setPaste(e.target.value)} />
+        )}
+        {tab === 'pairs' && (
+            <div className="h-full flex flex-col">
+                <div className="text-sm text-gray-500 mb-2">פורמט: מילה - הגדרה (אחת בכל שורה)</div>
+                <textarea className="flex-1 w-full border rounded-lg p-4 font-mono text-base focus:ring-2 focus:ring-indigo-500 outline-none" placeholder={'תפוח - פרי עגול\nכלב - חיה נובחת'} value={pairs} onChange={e => setPairs(e.target.value)} />
+            </div>
         )}
       </div>
 
@@ -296,15 +294,20 @@ const PracticeMode = ({ words, onBack, onMark }: any) => {
   const word = words[idx];
 
   const next = () => { setFlip(false); setError(null); setIdx((idx + 1) % words.length); };
+  const prev = () => { setFlip(false); setError(null); setIdx((idx - 1 + words.length) % words.length); };
   
   const speak = async (e: React.MouseEvent) => { 
       e.stopPropagation(); 
       setError(null);
-      
-      const result = await playTextToSpeech((flip && word.definition) ? word.definition : word.term);
-      if (!result.success) {
-          setError(result.error || "שגיאה בניגון שמע");
-      }
+      const text = (flip && word.definition) ? word.definition : word.term;
+      const result = await playTextToSpeech(text);
+      if (!result.success) setError(result.error || "שגיאה בניגון שמע");
+  };
+
+  const handleForgot = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      onMark(word); // Mark for review automatically if forgotten
+      next();
   };
 
   return (
@@ -316,7 +319,7 @@ const PracticeMode = ({ words, onBack, onMark }: any) => {
 
         {error && (
            <div className="mb-4 bg-red-50 text-red-700 p-3 rounded-lg border border-red-200 text-sm flex items-center justify-between animate-fade-in">
-              <span>⚠️ {error} - בדוק את עוצמת השמע בדפדפן</span>
+              <span>⚠️ {error}</span>
               <button onClick={() => setError(null)} className="font-bold px-2">✕</button>
            </div>
        )}
@@ -329,7 +332,8 @@ const PracticeMode = ({ words, onBack, onMark }: any) => {
        </div>
 
        <div className="flex gap-3 mt-8">
-           <button onClick={() => setIdx((idx - 1 + words.length) % words.length)} className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors font-medium">הקודם</button>
+           <button onClick={prev} className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors font-medium">הקודם</button>
+           <button onClick={handleForgot} className="flex-1 py-3 rounded-xl bg-orange-50 text-orange-700 border border-orange-100 font-bold hover:bg-orange-100 transition-colors">↺ שוב</button>
            <button onClick={(e) => { e.stopPropagation(); onMark(word); next(); }} className="flex-1 py-3 rounded-xl bg-amber-100 text-amber-700 font-bold hover:bg-amber-200 transition-colors border border-amber-200">⭐ לסקירה</button>
            <button onClick={next} className="flex-1 py-3 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-700 transition-colors shadow-md">הבא</button>
        </div>
@@ -343,6 +347,7 @@ const TestMode = ({ words, onDone, onCancel }: any) => {
   const [res, setRes] = useState<TestResult[]>([]);
   const [started, setStarted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [playing, setPlaying] = useState(false);
   const inp = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -356,8 +361,11 @@ const TestMode = ({ words, onDone, onCancel }: any) => {
 
   const play = async () => {
      setError(null);
+     setPlaying(true);
      const w = words[idx];
-     const result = await playTextToSpeech(w.definition || w.term);
+     const text = w.definition || w.term;
+     const result = await playTextToSpeech(text);
+     setPlaying(false);
      if (!result.success) {
          setError(result.error || "לא ניתן להשמיע שמע");
      } else {
@@ -388,7 +396,9 @@ const TestMode = ({ words, onDone, onCancel }: any) => {
       <div className="max-w-xl w-full mx-auto px-4">
           <div className="flex justify-between mb-8 items-center">
               <span className="text-gray-500 font-medium bg-gray-100 px-3 py-1 rounded-full text-sm">שאלה {idx + 1} מתוך {words.length}</span>
-              <button onClick={play} className="text-indigo-600 font-bold hover:text-indigo-800 flex items-center gap-1 bg-indigo-50 px-3 py-1 rounded-full">השמע שוב 🔊</button>
+              <button onClick={play} disabled={playing} className="text-indigo-600 font-bold hover:text-indigo-800 flex items-center gap-1 bg-indigo-50 px-3 py-1 rounded-full disabled:opacity-50">
+                  {playing ? 'משמיע...' : 'השמע שוב 🔊'}
+              </button>
           </div>
           
           {error && (
@@ -399,10 +409,15 @@ const TestMode = ({ words, onDone, onCancel }: any) => {
              </div>
           )}
 
-          <form onSubmit={submit} className="bg-white p-8 rounded-2xl shadow-lg border border-gray-100">
-              <input ref={inp} autoFocus value={val} onChange={e => setVal(e.target.value)} className="w-full text-center text-2xl p-4 border-b-2 border-indigo-100 focus:border-indigo-600 outline-none mb-8 transition-colors bg-transparent" placeholder="הקלד כאן..." dir="auto" />
-              <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold shadow-md hover:bg-indigo-700 transition-all text-lg">אישור</button>
-          </form>
+          <div className="bg-white p-8 rounded-2xl shadow-lg border border-gray-100 text-center mb-6">
+             <div className="mb-4 text-gray-400 text-sm">
+                 {words[idx].definition ? 'הקשב להגדרה וכתוב את המילה' : 'הקשב למילה וכתוב אותה'}
+             </div>
+             <form onSubmit={submit}>
+                <input ref={inp} autoFocus value={val} onChange={e => setVal(e.target.value)} className="w-full text-center text-2xl p-4 border-b-2 border-indigo-100 focus:border-indigo-600 outline-none mb-8 transition-colors bg-transparent" placeholder="הקלד כאן..." dir="auto" autoComplete="off" />
+                <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold shadow-md hover:bg-indigo-700 transition-all text-lg">אישור</button>
+             </form>
+          </div>
       </div>
   );
 };
@@ -416,15 +431,24 @@ const ResultScreen = ({ res, onHome }: any) => {
               <div className="text-gray-500 font-medium">ציון סופי</div>
           </div>
           <div className="flex-1 overflow-auto border-t border-b custom-scrollbar">
-              {res.map((r: any, i: number) => (
-                  <div key={i} className="flex justify-between items-center p-4 border-b last:border-0 hover:bg-gray-50 transition-colors">
-                      <div>
-                          <div className="font-bold text-gray-800 text-lg">{r.term}</div>
-                          <div className={`text-base font-mono mt-1 ${r.isCorrect ? 'text-green-600' : 'text-red-500 line-through'}`}>{r.userAnswer || '(ריק)'}</div>
-                      </div>
-                      <div className="text-2xl">{r.isCorrect ? '✅' : '❌'}</div>
-                  </div>
-              ))}
+              <table className="w-full text-right">
+                  <thead className="bg-gray-50 sticky top-0">
+                      <tr>
+                          <th className="p-3 text-sm text-gray-500">שאלה</th>
+                          <th className="p-3 text-sm text-gray-500">תשובה</th>
+                          <th className="p-3 text-sm text-gray-500">סטטוס</th>
+                      </tr>
+                  </thead>
+                  <tbody>
+                    {res.map((r: any, i: number) => (
+                        <tr key={i} className="border-b last:border-0 hover:bg-gray-50">
+                            <td className="p-3 font-bold text-gray-800">{r.term}</td>
+                            <td className={`p-3 font-mono ${r.isCorrect ? 'text-green-600' : 'text-red-500 line-through'}`}>{r.userAnswer || '-'}</td>
+                            <td className="p-3">{r.isCorrect ? '✅' : '❌'}</td>
+                        </tr>
+                    ))}
+                  </tbody>
+              </table>
           </div>
           <button onClick={onHome} className="mt-6 w-full bg-gray-100 text-gray-800 py-3 rounded-xl font-bold hover:bg-gray-200 transition-colors">חזרה לתפריט הראשי</button>
       </div>
@@ -436,22 +460,40 @@ const ResultScreen = ({ res, onHome }: any) => {
 // =================================================================================
 
 const App = () => {
-  const [words, setWords] = useState(() => JSON.parse(localStorage.getItem('dixi_words') || '[]'));
-  const [reviews, setReviews] = useState(() => JSON.parse(localStorage.getItem('dixi_reviews') || '[]'));
+  const [words, setWords] = useState(() => {
+     try { return JSON.parse(localStorage.getItem('dixi_words') || '[]'); } catch { return []; }
+  });
+  const [reviews, setReviews] = useState(() => {
+     try { return JSON.parse(localStorage.getItem('dixi_reviews') || '[]'); } catch { return []; }
+  });
   const [mode, setMode] = useState(AppMode.MENU);
   const [results, setResults] = useState([]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-     // Handle hash based routing for back button support
-     const handleHash = () => {
-         const m = window.location.hash.replace('#', '') || AppMode.MENU;
-         setMode(m);
-     };
-     window.addEventListener('hashchange', handleHash);
-     handleHash(); // Initial check
-     return () => window.removeEventListener('hashchange', handleHash);
-  }, []);
+     // Session redirect for Github Pages SPA 404 hack
+     const redirect = sessionStorage.getItem('redirect');
+     if(redirect) {
+         sessionStorage.removeItem('redirect');
+         const url = new URL(redirect);
+         const page = url.searchParams.get('page');
+         if(page && words.length > 0) setMode(page);
+     } else {
+         // Hash routing
+         const handleHash = () => {
+             const m = window.location.hash.replace('#', '');
+             if(m && Object.values(AppMode).includes(m)) {
+                 if((m === AppMode.PRACTICE || m === AppMode.TEST) && words.length === 0) setMode(AppMode.MENU);
+                 else setMode(m);
+             } else {
+                 setMode(AppMode.MENU);
+             }
+         };
+         window.addEventListener('hashchange', handleHash);
+         handleHash();
+         return () => window.removeEventListener('hashchange', handleHash);
+     }
+  }, [words.length]);
 
   const saveList = (list: WordItem[]) => {
       setWords(list);
@@ -472,13 +514,19 @@ const App = () => {
       fr.onload = (ev) => {
           try { 
             const result = ev.target?.result;
-            if (typeof result === 'string') {
-              saveList(JSON.parse(result)); 
-            }
-          } 
-          catch(e) { alert('שגיאה בקובץ'); }
+            if (typeof result === 'string') saveList(JSON.parse(result)); 
+          } catch(e) { alert('שגיאה בקובץ'); }
       };
       if(e.target.files?.[0]) fr.readAsText(e.target.files[0]);
+  };
+
+  const downloadList = () => {
+    const dataStr = JSON.stringify(words, null, 2);
+    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+    const linkElement = document.createElement('a');
+    linkElement.setAttribute('href', dataUri);
+    linkElement.setAttribute('download', 'dixi_list.json');
+    linkElement.click();
   };
 
   const Page = () => {
@@ -491,7 +539,10 @@ const App = () => {
               <div className="max-w-4xl mx-auto w-full p-4 h-[85vh] flex flex-col">
                   <div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm mb-4 shrink-0">
                       <h2 className="font-bold text-xl text-gray-800">רשימה נוכחית ({words.length})</h2>
-                      <button onClick={() => window.location.hash = AppMode.CREATE_LIST} className="text-indigo-600 font-medium hover:text-indigo-800 transition-colors bg-indigo-50 px-4 py-2 rounded-lg">עריכה</button>
+                      <div className="flex gap-2">
+                        <button onClick={downloadList} className="text-indigo-600 hover:bg-indigo-50 px-3 py-1 rounded text-sm font-medium">שמור</button>
+                        <button onClick={() => window.location.hash = AppMode.CREATE_LIST} className="text-gray-600 hover:bg-gray-100 px-3 py-1 rounded text-sm font-medium">ערוך</button>
+                      </div>
                   </div>
                   <div className="flex-1 bg-white rounded-xl shadow-lg overflow-hidden flex flex-col border border-gray-100">
                       <div className="overflow-auto flex-1 p-4 custom-scrollbar">

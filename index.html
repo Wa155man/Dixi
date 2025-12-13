@@ -15,11 +15,12 @@
     <script>
       window.process = window.process || {};
       window.process.env = window.process.env || {};
+      // Initialize API_KEY safely
       if (!window.process.env.API_KEY) window.process.env.API_KEY = ''; 
 
       // Check for file:// protocol
       if (window.location.protocol === 'file:') {
-        console.warn('Running via file:// protocol. Some features might be restricted.');
+        console.warn('App running in file:// protocol. Some module features may be limited.');
       }
 
       window.onerror = function(msg, url, line, col, error) {
@@ -35,7 +36,7 @@
       };
     </script>
 
-    <!-- Import Map for Modules -->
+    <!-- Import Map for Modules - Strictly React 18 -->
     <script type="importmap">
 {
   "imports": {
