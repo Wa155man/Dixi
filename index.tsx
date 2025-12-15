@@ -195,6 +195,7 @@ const InputSection = ({ onSave, onCancel, initialList }: any) => {
   const [tab, setTab] = useState('manual');
   const [inputs, setInputs] = useState(() => {
      let list = initialList?.length ? initialList.map((w: any) => ({term: w.term, definition: w.definition || ''})) : [];
+     // Ensure at least 10 empty rows for easy typing
      if (list.length === 0) list = Array(10).fill({ term: '', definition: '' });
      else while (list.length < 10) list.push({ term: '', definition: '' });
      return list;
