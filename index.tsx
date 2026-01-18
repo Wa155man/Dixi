@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
-import { GoogleGenAI, Modality } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 
 // =================================================================================
 // TYPES & CONSTANTS
@@ -21,6 +21,7 @@ interface WordItem {
   id: string;
   term: string;
   definition?: string;
+  nikud?: string; // Word with Hebrew vowels
 }
 
 interface TestResult {
@@ -38,143 +39,131 @@ const generateId = () => Math.random().toString(36).substring(2, 9);
 
 const normalizeString = (str: string) => {
   if (!str) return '';
-  return str.replace(/[.,/#!$%^&*;:{}=\-_`~()?"']/g, "").replace(/\s{2,}/g, " ").trim().toLowerCase();
+  // Remove Hebrew Nikud and standard punctuation for comparison
+  const withoutNikud = str.replace(/[\u0591-\u05C7]/g, "");
+  return withoutNikud.replace(/[.,/#!$%^&*;:{}=\-_`~()?"']/g, "").replace(/\s{2,}/g, " ").trim().toLowerCase();
 };
 
 const checkAnswer = (correct: string, actual: string) => normalizeString(correct) === normalizeString(actual);
 
-const decodeBase64 = (base64: string): Uint8Array => {
-  const binaryString = atob(base64);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes;
-};
-
-const decodeAudioData = async (
-  data: Uint8Array,
-  ctx: AudioContext,
-  sampleRate: number = 24000,
-  numChannels: number = 1
-): Promise<AudioBuffer> => {
-  const dataInt16 = new Int16Array(data.buffer, data.byteOffset, data.byteLength / 2);
-  const frameCount = dataInt16.length / numChannels;
-  const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
-
-  for (let channel = 0; channel < numChannels; channel++) {
-    const channelData = buffer.getChannelData(channel);
-    for (let i = 0; i < frameCount; i++) {
-      channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
-    }
-  }
-  return buffer;
-};
-
 // =================================================================================
-// SERVICES (AI & TTS)
+// NATIVE TTS SERVICE (Standalone - Optimized for High Quality & Hebrew)
 // =================================================================================
 
-const audioCache: Record<string, AudioBuffer> = {};
-let globalAudioContext: AudioContext | null = null;
-const prefetching = new Set<string>();
+let currentUtterance: SpeechSynthesisUtterance | null = null;
 
-const getAudioContext = () => {
-  if (!globalAudioContext) {
-    globalAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+const playTTS = (text: string, onPlayStateChange?: (playing: boolean) => void): void => {
+  const cleanText = text?.trim();
+  if (!cleanText || !window.speechSynthesis) return;
+
+  window.speechSynthesis.cancel();
+  
+  if (window.speechSynthesis.paused) {
+    window.speechSynthesis.resume();
   }
-  return globalAudioContext;
-};
 
-const fetchGeminiTTS = async (text: string): Promise<AudioBuffer | null> => {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) return null;
-  try {
-    const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-preview-tts",
-      contents: [{ parts: [{ text: `Say clearly: ${text}` }] }],
-      config: {
-        responseModalities: [Modality.AUDIO],
-        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } }
-      },
+  const utterance = new SpeechSynthesisUtterance(cleanText);
+  currentUtterance = utterance; 
+  
+  const isHebrew = /[\u0590-\u05FF]/.test(cleanText);
+  // Some browsers use iw-IL, others use he-IL
+  utterance.lang = isHebrew ? 'he-IL' : 'en-US';
+  
+  const voices = window.speechSynthesis.getVoices();
+  const femaleVoiceKeywords = ['google', 'siri', 'natural', 'premium', 'samantha', 'victoria', 'heather', 'karen', 'carmit', 'עברית'];
+  
+  const sortedVoices = voices
+    .filter(v => {
+        const lowerLang = v.lang.toLowerCase();
+        // Check for both modern 'he' and legacy 'iw' Hebrew codes
+        if (isHebrew) {
+            return lowerLang.startsWith('he') || lowerLang.startsWith('iw');
+        }
+        return lowerLang.startsWith('en');
+    })
+    .sort((a, b) => {
+      const getScore = (voice: SpeechSynthesisVoice) => {
+        const name = voice.name.toLowerCase();
+        let score = 0;
+        if (femaleVoiceKeywords.some(k => name.includes(k))) score += 10;
+        if (name.includes('natural') || name.includes('premium') || name.includes('enhanced')) score += 20;
+        if (name.includes('google')) score += 15;
+        if (voice.localService) score += 5;
+        return score;
+      };
+      return getScore(b) - getScore(a);
     });
-    let base64: string | undefined;
-    const parts = response.candidates?.[0]?.content?.parts || [];
-    for (const part of parts) {
-      if (part.inlineData?.data) {
-        base64 = part.inlineData.data;
-        break;
+
+  if (sortedVoices.length > 0) {
+    utterance.voice = sortedVoices[0];
+  }
+
+  // Soft, girly tone settings
+  utterance.rate = 0.82;   
+  utterance.pitch = 1.18;  
+  utterance.volume = 1.0;
+
+  utterance.onstart = () => onPlayStateChange?.(true);
+  utterance.onend = () => {
+    onPlayStateChange?.(false);
+    currentUtterance = null;
+  };
+  utterance.onerror = (e) => {
+    console.error("SpeechSynthesis Error:", e);
+    onPlayStateChange?.(false);
+    currentUtterance = null;
+  };
+
+  setTimeout(() => {
+    window.speechSynthesis.speak(utterance);
+  }, 50);
+};
+
+// =================================================================================
+// GEMINI SERVICE
+// =================================================================================
+
+// Fix: Corrected typing of 'words' parameter and return object to include 'nikud' to avoid TS errors in handleVocalize.
+const vocalizeWords = async (words: {term: string, definition: string, nikud?: string}[]) => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const hebrewWords = words.filter(w => /[\u0590-\u05FF]/.test(w.term)).map(w => w.term);
+  
+  if (hebrewWords.length === 0) return words;
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: `For the following list of Hebrew words, provide the version with full Nikud (vowels). 
+    Words: ${hebrewWords.join(", ")}`,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            original: { type: Type.STRING },
+            nikud: { type: Type.STRING, description: "Word with full Hebrew vowels (Nikud)" }
+          },
+          required: ["original", "nikud"]
+        }
       }
     }
-    if (!base64) return null;
-    return await decodeAudioData(decodeBase64(base64), getAudioContext());
-  } catch (e) {
-    console.error("TTS Error:", e);
-    return null;
-  }
-};
-
-const preCacheAudio = async (words: WordItem[]) => {
-  for (const w of words) {
-    const texts = [w.term, w.definition].filter(Boolean) as string[];
-    for (const text of texts) {
-      const clean = text.trim();
-      if (!clean || audioCache[clean] || prefetching.has(clean)) continue;
-      prefetching.add(clean);
-      fetchGeminiTTS(clean).then(buffer => {
-        if (buffer) audioCache[clean] = buffer;
-        prefetching.delete(clean);
-      }).catch(() => prefetching.delete(clean));
-    }
-  }
-};
-
-const playTTS = async (text: string, onPlayStateChange?: (playing: boolean) => void): Promise<void> => {
-  const ctx = getAudioContext();
-  if (ctx.state === 'suspended') await ctx.resume();
-  const cleanText = text?.trim();
-  if (!cleanText) return;
-
-  onPlayStateChange?.(true);
-  const finalize = () => onPlayStateChange?.(false);
+  });
 
   try {
-    let buffer = audioCache[cleanText];
-    if (!buffer) {
-      buffer = await fetchGeminiTTS(cleanText) as AudioBuffer;
-      if (buffer) audioCache[cleanText] = buffer;
-    }
-    if (!buffer) throw new Error("No buffer");
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    source.connect(ctx.destination);
-    source.start(0);
-    return new Promise((resolve) => { source.onended = () => { finalize(); resolve(); }; });
-  } catch (e) {
-    // Fallback to browser TTS
-    return new Promise((resolve) => {
-      const u = new SpeechSynthesisUtterance(cleanText);
-      u.lang = /[\u0590-\u05FF]/.test(cleanText) ? 'he-IL' : 'en-US';
-      u.onend = () => { finalize(); resolve(); };
-      window.speechSynthesis.speak(u);
+    const nikudMap: Record<string, string> = {};
+    const data = JSON.parse(response.text || '[]');
+    data.forEach((item: any) => {
+      nikudMap[item.original] = item.nikud;
     });
-  }
-};
 
-const suggestDefinition = async (word: string): Promise<string> => {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey || !word.trim()) return "";
-  try {
-    const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: `Provide a very short, simple definition in Hebrew for the word: "${word}". One short sentence max. Avoid generic intros. Just the definition.`,
-    });
-    return response.text.trim();
+    return words.map(w => ({
+      ...w,
+      nikud: nikudMap[w.term] || w.nikud || w.term
+    }));
   } catch (e) {
-    console.error("AI Error:", e);
-    return "";
+    console.error("Failed to parse Nikud response", e);
+    return words;
   }
 };
 
@@ -182,15 +171,9 @@ const suggestDefinition = async (word: string): Promise<string> => {
 // COMPONENTS
 // =================================================================================
 
-const SpeakerIcon = ({ className = "h-8 w-8" }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor">
+const SpeakerIcon = ({ className = "h-8 w-8", isPlaying = false }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" className={`${className} ${isPlaying ? 'animate-pulse scale-110 text-indigo-400' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor">
     <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-  </svg>
-);
-
-const SparklesIcon = ({ className = "h-5 w-5" }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
   </svg>
 );
 
@@ -228,40 +211,41 @@ const LandingPage = ({ hasWords, onCreate, onFileSelect, onContinue, reviewCount
 
 const InputSection = ({ onSave, onCancel, initialList }: any) => {
   const [tab, setTab] = useState('manual');
+  const [loadingNikud, setLoadingNikud] = useState(false);
   const [inputs, setInputs] = useState(() => {
-    let list = initialList?.length ? initialList.map((w: any) => ({term: w.term, definition: w.definition || ''})) : [];
-    while (list.length < 10) list.push({ term: '', definition: '' });
+    let list = initialList?.length ? initialList.map((w: any) => ({term: w.term, definition: w.definition || '', nikud: w.nikud || ''})) : [];
+    while (list.length < 10) list.push({ term: '', definition: '', nikud: '' });
     return list;
   });
   const [paste, setPaste] = useState('');
-  const [loadingAi, setLoadingAi] = useState<string | null>(null);
 
-  const handleSuggest = async (index: number) => {
-    const word = inputs[index].term;
-    if (!word) return;
-    setLoadingAi(`row-${index}`);
-    const def = await suggestDefinition(word);
-    const n = [...inputs];
-    n[index].definition = def;
-    setInputs(n);
-    setLoadingAi(null);
-  };
-
-  const generateAll = async () => {
-    setLoadingAi('all');
-    const newInputs = [...inputs];
-    for (let i = 0; i < newInputs.length; i++) {
-      if (newInputs[i].term && !newInputs[i].definition) {
-        const def = await suggestDefinition(newInputs[i].term);
-        newInputs[i].definition = def;
-      }
+  // Fix: Improved update logic using a mapping strategy to correctly align vocalized results with the original word entries.
+  const handleVocalize = async () => {
+    setLoadingNikud(true);
+    try {
+      const itemsToVocalize = inputs.filter(i => i.term.trim());
+      const vocalized = await vocalizeWords(itemsToVocalize);
+      
+      const newInputs = inputs.map(input => {
+        // Find matching vocalized word by term
+        const found = vocalized.find(v => v.term === input.term);
+        return found ? { ...input, nikud: found.nikud } : input;
+      });
+      setInputs(newInputs);
+    } catch (e) {
+      alert("שגיאה בהוספת ניקוד");
+    } finally {
+      setLoadingNikud(false);
     }
-    setInputs(newInputs);
-    setLoadingAi(null);
   };
 
   const process = () => {
-    const list = inputs.filter((i: any) => i.term.trim()).map((i: any) => ({ id: generateId(), term: i.term.trim(), definition: i.definition?.trim() }));
+    const list = inputs.filter((i: any) => i.term.trim()).map((i: any) => ({ 
+      id: generateId(), 
+      term: i.term.trim(), 
+      definition: i.definition?.trim(),
+      nikud: i.nikud || i.term.trim()
+    }));
     if (!list.length) return alert('הזן לפחות מילה אחת');
     onSave(list);
   };
@@ -271,7 +255,7 @@ const InputSection = ({ onSave, onCancel, initialList }: any) => {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 shrink-0 gap-4">
         <div>
           <h2 className="text-3xl font-black text-indigo-800">בניית רשימת הכתבה</h2>
-          <p className="text-slate-400 font-medium">הזן מילים והגדרות או השתמש בבינה המלאכותית שלנו</p>
+          <p className="text-slate-400 font-medium">הזן מילים והגדרות לתרגול. ניתן להוסיף ניקוד אוטומטית!</p>
         </div>
         <div className="flex bg-slate-100 rounded-2xl p-1 w-full md:w-auto">
           <button onClick={() => setTab('manual')} className={`flex-1 md:flex-none px-8 py-3 rounded-xl text-sm font-bold transition-all ${tab === 'manual' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>ידני</button>
@@ -279,30 +263,18 @@ const InputSection = ({ onSave, onCancel, initialList }: any) => {
         </div>
       </div>
 
-      {tab === 'manual' && (
-        <div className="mb-4 flex justify-end">
-          <button 
-            disabled={loadingAi === 'all'}
-            onClick={generateAll}
-            className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl font-bold shadow-md hover:shadow-lg disabled:opacity-50 transition-all text-sm"
-          >
-            {loadingAi === 'all' ? <div className="h-4 w-4 border-2 border-white border-t-transparent animate-spin rounded-full"/> : <SparklesIcon className="h-4 w-4" />}
-            צור הגדרות לכולם (AI)
-          </button>
-        </div>
-      )}
-
       <div className="flex-1 overflow-y-auto custom-scrollbar p-1">
         {tab === 'manual' ? (
           <div className="space-y-4 pr-1">
-            <div className="hidden md:grid grid-cols-[30px_1fr_1fr_50px] gap-4 px-2 text-slate-400 font-bold text-sm">
+            <div className="hidden md:grid grid-cols-[30px_1fr_1fr_1fr_50px] gap-4 px-2 text-slate-400 font-bold text-sm">
               <span>#</span>
               <span>המילה</span>
+              <span>עם ניקוד (אופציונלי)</span>
               <span>הגדרה / הסבר</span>
               <span></span>
             </div>
             {inputs.map((inp, i) => (
-              <div key={i} className="flex flex-col md:grid md:grid-cols-[30px_1fr_1fr_50px] gap-3 md:gap-4 items-center bg-slate-50/50 p-3 md:p-0 rounded-2xl md:bg-transparent">
+              <div key={i} className="flex flex-col md:grid md:grid-cols-[30px_1fr_1fr_1fr_50px] gap-3 md:gap-4 items-center bg-slate-50/50 p-3 md:p-0 rounded-2xl md:bg-transparent">
                 <span className="hidden md:block w-6 text-slate-300 font-bold text-center">{i+1}</span>
                 <input 
                   placeholder="המילה..." 
@@ -312,24 +284,22 @@ const InputSection = ({ onSave, onCancel, initialList }: any) => {
                     const n = [...inputs]; n[i].term = e.target.value; setInputs(n);
                   }} 
                 />
-                <div className="relative w-full">
-                  <input 
-                    placeholder="הגדרה..." 
-                    className="w-full border-2 border-slate-100 rounded-2xl px-5 py-4 focus:border-indigo-500 focus:bg-white outline-none text-lg transition-all pr-12" 
-                    value={inp.definition} 
-                    onChange={e => {
-                      const n = [...inputs]; n[i].definition = e.target.value; setInputs(n);
-                    }} 
-                  />
-                  <button 
-                    disabled={!inp.term || loadingAi === `row-${i}`}
-                    onClick={() => handleSuggest(i)}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 p-2 text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all disabled:opacity-30"
-                    title="הצע הגדרה באמצעות AI"
-                  >
-                    {loadingAi === `row-${i}` ? <div className="h-4 w-4 border-2 border-indigo-400 border-t-transparent animate-spin rounded-full"/> : <SparklesIcon className="h-4 w-4" />}
-                  </button>
-                </div>
+                <input 
+                  placeholder="ניקוד..." 
+                  className="w-full border-2 border-slate-100 rounded-2xl px-5 py-4 focus:border-indigo-500 focus:bg-white outline-none text-lg font-medium text-indigo-600 transition-all" 
+                  value={inp.nikud} 
+                  onChange={e => {
+                    const n = [...inputs]; n[i].nikud = e.target.value; setInputs(n);
+                  }} 
+                />
+                <input 
+                  placeholder="הגדרה..." 
+                  className="w-full border-2 border-slate-100 rounded-2xl px-5 py-4 focus:border-indigo-500 focus:bg-white outline-none text-lg transition-all" 
+                  value={inp.definition} 
+                  onChange={e => {
+                    const n = [...inputs]; n[i].definition = e.target.value; setInputs(n);
+                  }} 
+                />
                 <button 
                   onClick={() => {
                     const n = inputs.filter((_, idx) => idx !== i);
@@ -341,7 +311,16 @@ const InputSection = ({ onSave, onCancel, initialList }: any) => {
                 </button>
               </div>
             ))}
-            <button onClick={() => setInputs([...inputs, ...Array(5).fill({term:'', definition:''})])} className="w-full py-5 text-indigo-600 border-2 border-dashed border-indigo-100 bg-indigo-50/30 rounded-2xl font-black hover:bg-indigo-50 transition-all">+ הוסף עוד שורות</button>
+            <div className="flex gap-4">
+              <button onClick={() => setInputs([...inputs, ...Array(5).fill({term:'', definition:'', nikud:''})])} className="flex-1 py-5 text-indigo-600 border-2 border-dashed border-indigo-100 bg-indigo-50/30 rounded-2xl font-black hover:bg-indigo-50 transition-all">+ הוסף עוד שורות</button>
+              <button 
+                onClick={handleVocalize} 
+                disabled={loadingNikud}
+                className="flex-1 py-5 text-amber-700 border-2 border-dashed border-amber-100 bg-amber-50/30 rounded-2xl font-black hover:bg-amber-100 transition-all disabled:opacity-50"
+              >
+                {loadingNikud ? 'מנקד... ✨' : 'הוסף ניקוד אוטומטית ✨'}
+              </button>
+            </div>
           </div>
         ) : (
           <div className="h-full flex flex-col">
@@ -385,7 +364,7 @@ const PracticeMode = ({ words, onBack, onMark }: any) => {
         <div className={`w-full h-full transform-style-3d transition-transform duration-500 ${flip ? 'rotate-y-180' : ''}`}>
            <div className="absolute inset-0 backface-hidden flex flex-col items-center justify-center bg-white p-8 text-center">
               <div className="text-indigo-400 font-black uppercase tracking-widest mb-6 opacity-50">המילה</div>
-              <h2 className="text-6xl md:text-8xl font-black text-slate-800 break-words w-full leading-tight">{word.term}</h2>
+              <h2 className="text-6xl md:text-8xl font-black text-slate-800 break-words w-full leading-tight">{word.nikud || word.term}</h2>
               {word.definition && (
                 <div className="mt-12 flex items-center gap-2 px-6 py-2 bg-indigo-50 text-indigo-600 rounded-full font-bold animate-pulse text-sm">
                    <span>הקש כדי לראות הגדרה</span>
@@ -401,9 +380,9 @@ const PracticeMode = ({ words, onBack, onMark }: any) => {
         <div className="absolute top-8 left-8 z-20">
           <button 
             onClick={handlePlay} 
-            className={`p-6 bg-indigo-600 text-white rounded-3xl shadow-xl hover:scale-110 active:scale-95 transition-all ${playing ? 'ring-8 ring-indigo-200 animate-pulse' : ''}`}
+            className={`p-6 bg-indigo-600 text-white rounded-3xl shadow-xl hover:scale-110 active:scale-95 transition-all ${playing ? 'ring-8 ring-indigo-200' : ''}`}
           >
-            <SpeakerIcon className="h-10 w-10" />
+            <SpeakerIcon className="h-10 w-10" isPlaying={playing} />
           </button>
         </div>
       </div>
@@ -427,11 +406,9 @@ const TestMode = ({ words, onDone, onCancel }: any) => {
 
   const current = words[idx];
 
-  const play = useCallback(async () => {
+  const play = useCallback(() => {
     if (!current) return;
-    setPlaying(true);
-    await playTTS(testType === 'definition' && current.definition ? current.definition : current.term);
-    setPlaying(false);
+    playTTS(testType === 'definition' && current.definition ? current.definition : current.term, setPlaying);
     setTimeout(() => inpRef.current?.focus(), 100);
   }, [current, testType]);
 
@@ -487,14 +464,29 @@ const TestMode = ({ words, onDone, onCancel }: any) => {
     <div className="max-w-xl w-full mx-auto px-4 animate-screen-entry">
       <div className="flex justify-between mb-8 items-center bg-white p-5 rounded-[2rem] shadow-sm border border-slate-100">
         <span className="text-indigo-600 font-black text-lg">שאלה {idx + 1} מתוך {words.length}</span>
-        <button onClick={play} disabled={playing} className={`flex items-center gap-3 font-black px-6 py-3 rounded-2xl transition-all ${playing ? 'bg-indigo-100 text-indigo-700 animate-pulse' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'}`}>
-          {playing ? 'משמיע...' : 'השמע שוב 🔊'}
+        <button 
+          onClick={play} 
+          disabled={playing} 
+          className={`flex items-center gap-3 font-black px-6 py-3 rounded-2xl transition-all shadow-sm ${playing ? 'bg-indigo-100 text-indigo-700 animate-pulse' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 hover:shadow-md'}`}
+        >
+          <SpeakerIcon className="h-6 w-6" isPlaying={playing} />
+          <span>השמע שוב</span>
         </button>
       </div>
       <div className="bg-white p-12 rounded-[3.5rem] shadow-2xl border-4 border-indigo-50 text-center mb-6">
-        <div className="mb-8 text-slate-400 font-bold text-lg uppercase tracking-widest">
+        <div className="mb-4 text-slate-400 font-bold text-lg uppercase tracking-widest">
           {testType === 'definition' ? 'כתוב את המילה שמתאימה להגדרה' : 'כתוב את המילה ששמעת'}
         </div>
+        
+        {/* Spelling assistance hint like Nakdan.com */}
+        <div className="mb-8 min-h-[3rem] flex items-center justify-center">
+            {val.length > 0 && (
+                <div className="text-indigo-300 font-medium text-xl bg-indigo-50/50 px-6 py-2 rounded-2xl border border-indigo-100 animate-pulse">
+                    {val} {current.nikud && current.nikud !== current.term && <span className="mr-2 opacity-50">({current.nikud})</span>}
+                </div>
+            )}
+        </div>
+
         <form onSubmit={submit}>
           <input 
             ref={inpRef} 
@@ -559,17 +551,23 @@ const App = () => {
   });
   const [mode, setMode] = useState<Mode>(AppMode.MENU);
   const [results, setResults] = useState<TestResult[]>([]);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // Initialize voices
   useEffect(() => {
-    if (words.length > 0) preCacheAudio(words);
-  }, [words]);
+    if (window.speechSynthesis) {
+        window.speechSynthesis.getVoices();
+        const handleVoicesChanged = () => window.speechSynthesis.getVoices();
+        window.speechSynthesis.addEventListener('voiceschanged', handleVoicesChanged);
+        return () => window.speechSynthesis.removeEventListener('voiceschanged', handleVoicesChanged);
+    }
+  }, []);
 
   const saveList = (list: WordItem[]) => {
     setWords(list);
     localStorage.setItem('dixi_words', JSON.stringify(list));
     setMode(AppMode.PREVIEW);
-    preCacheAudio(list);
   };
 
   const addReview = (w: WordItem) => {
@@ -614,8 +612,13 @@ const App = () => {
                   {words.map((w, i) => (
                     <div key={i} className="p-8 bg-slate-50/50 rounded-[2rem] border-2 border-slate-100 flex flex-col group hover:border-indigo-200 transition-all hover:bg-white hover:shadow-xl hover:shadow-indigo-50/50">
                       <div className="flex justify-between items-start mb-2">
-                        <span className="font-black text-3xl text-slate-800">{w.term}</span>
-                        <button onClick={() => playTTS(w.term)} className="text-indigo-600 p-3 bg-white rounded-2xl shadow-sm hover:scale-110 active:scale-95 transition-all"><SpeakerIcon className="h-7 w-7" /></button>
+                        <div>
+                            <span className="font-black text-3xl text-slate-800">{w.term}</span>
+                            {w.nikud && w.nikud !== w.term && <span className="block text-indigo-500 font-bold mt-1">{w.nikud}</span>}
+                        </div>
+                        <button onClick={() => playTTS(w.term, setIsSpeaking)} className="text-indigo-600 p-3 bg-white rounded-2xl shadow-sm hover:scale-110 active:scale-95 transition-all">
+                            <SpeakerIcon className="h-7 w-7" isPlaying={isSpeaking} />
+                        </button>
                       </div>
                       {w.definition && <p className="text-slate-500 font-medium leading-relaxed mt-2 border-t border-slate-100 pt-3">{w.definition}</p>}
                     </div>
